@@ -6,6 +6,7 @@
 #pragma push_macro("bool")
 #undef bool
 #endif
+#include "ScanStatusBar.h"
 #include <string>
 #include <vector>
 #ifdef bool
@@ -14,6 +15,7 @@
 #include "ScanNotice.h"
 
 #define WM_SCAN_NOTICE_CLICKED (WM_APP + 42)
+#define WM_SCAN_DROPPED_PATH (WM_APP + 43)	// lParam: CString * (deleted by the handler)
 
 class CScanNoticeButton : public CButton {
 protected:
@@ -22,7 +24,9 @@ protected:
 	DECLARE_MESSAGE_MAP()
 };
 
-class CMainToolBar : public CToolBar {
+// The native Windows toolbar control (Common Controls v6), not MFC's
+// CToolBar: CToolBar forces one width on all buttons, which truncates labels.
+class CMainToolBar : public CToolBarCtrl {
 public:
 	CMainToolBar();
 	virtual ~CMainToolBar();
@@ -33,17 +37,31 @@ public:
 	enum {
 		NoState = 0,
 		ViewFree,
+		ShowSystem,
 	};
 
 	virtual void EnableState(int state, BOOL enabled);
 	void UpdateButtonsForView(class CFolderView *view);
 
 	void Reload(void);
+	void Rebuild(void);
+	UINT GetDpi(void) const { return m_dpi; }
+	int GetButtonHeight(void) const { return m_buttonHeight; }
+	HFONT GetUiFont(void) const { return m_font; }
+protected:
+	UINT m_dpi;
+	int m_buttonHeight;
+	HFONT m_font;
+	HIMAGELIST m_images;
+	HIMAGELIST m_disabledImages;
+public:
 
 protected:
 	//{{AFX_MSG(CMainToolBar)
 	afx_msg void OnIgnoreUpdate(CCmdUI *ui);
+	afx_msg BOOL OnEraseBkgnd(CDC *pDC);
 	//}}AFX_MSG
+	afx_msg void OnCustomDraw(NMHDR *pNotify, LRESULT *pResult);
 	DECLARE_MESSAGE_MAP()
 
 };
@@ -56,6 +74,18 @@ public:
 	BOOL PreCreateWindow(CREATESTRUCT& cs);
 
 	virtual void RecalcLayout(BOOL bNotify);
+
+	// Scan progress in the window instead of a floating dialog. While a scan
+	// runs the toolbar and the map ignore input; the frame stays enabled so
+	// Cancel, moving and resizing keep working.
+	void BeginScan(const CString &root);
+	void UpdateScan(ui64 files, ui64 folders, ui64 bytes, ui64 usedspace,
+		const std::wstring &currentPath, bool complete);
+	void EndScan(void);
+	BOOL IsScanCancelRequested(void) const { return m_scanStatus.IsCancelRequested(); }
+	void RequestScanCancel(void) { m_scanStatus.RequestCancel(); }
+	BOOL IsScanning(void) const { return m_scanning; }
+	BOOL m_closeAfterScan;
 	void SetScanNotice(ui64 skippedDirectories, DWORD firstError,
 		const std::vector<std::wstring>& paths);
 	void ClearScanNotice(void);
@@ -74,6 +104,8 @@ protected:
 	afx_msg void OnScanNoticeClicked();
 	afx_msg LRESULT OnScanNoticeClickedMessage(WPARAM wParam, LPARAM lParam);
 	afx_msg void OnScanNoticeUpdate(CCmdUI *ui);
+	afx_msg void OnDropFiles(HDROP drop);
+	afx_msg LRESULT OnScanDroppedPath(WPARAM wParam, LPARAM lParam);
 	//}}AFX_MSG
 	afx_msg void OnIgnoreUpdate(CCmdUI *ui);
 	DECLARE_MESSAGE_MAP()
@@ -83,6 +115,8 @@ public:
 
 protected:
 	CScanNoticeButton m_scanNoticeButton;
+	CScanStatusBar m_scanStatus;
+	BOOL m_scanning;
 	ScanNoticeState m_scanNotice;
 	std::vector<std::wstring> m_skippedPaths;
 };

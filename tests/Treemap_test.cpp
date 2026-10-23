@@ -486,6 +486,97 @@ static int test_unsorted_input_matches_finalized_layout()
 	return 1;
 }
 
+static int test_scaled_title_bar()
+{
+	CStringArena arena;
+	CFolder *subFolder = new CFolder;
+	subFolder->AddFileWithArena(arena, L"inner.txt", 9, 500, 500, 0);
+	CFolder root;
+	root.AddFolderWithArena(arena, L"SubDir", 6, subFolder, 0);
+	root.Finalize();
+
+	// 300 % text: a 36 px title bar instead of 12 px.
+	TreemapConfig config;
+	config.dpi = 288;
+	config.titleHeight = 36;
+	std::vector<TreemapNode> nodes;
+	TreemapEngine::ComputeLayout(0, 0, 2400, 1800, &root, 0, config, nodes);
+
+	CHECK(nodes.size() == 2);
+	CHECK(nodes[1].x == 3 && nodes[1].y == 36);
+	CHECK(nodes[1].w == 2400 - 6 && nodes[1].h == 1800 - 36 - 3);
+
+	// A click in the taller title bar selects the folder, below it the file.
+	CHECK(TreemapEngine::HitTestItem(nodes, 100, 20, 36) == &nodes[0]);
+	CHECK(TreemapEngine::HitTestItem(nodes, 100, 60, 36) == &nodes[1]);
+	return 1;
+}
+
+static const TreemapNode *FindByFlag(const std::vector<TreemapNode> &nodes, ui32 flag)
+{
+	for (const auto &n : nodes)
+		if (n.flags & flag) return &n;
+	return nullptr;
+}
+
+static const TreemapNode *FindByName(const std::vector<TreemapNode> &nodes, const wchar_t *name)
+{
+	for (const auto &n : nodes)
+		if (n.name != nullptr && wcscmp(n.name, name) == 0) return &n;
+	return nullptr;
+}
+
+static int test_live_layout_keeps_used_and_free_areas_fixed()
+{
+	// Volume: 600 used, 200 free. 1200x600 window, free space on the right.
+	TreemapConfig config;
+	std::vector<TreemapNode> early, late;
+
+	CStringArena arena;
+	CFolder root;
+	root.AddFileWithArena(arena, L"a.bin", 5, 150, 150, 0);
+	TreemapEngine::ComputeLiveLayout(0, 0, 1200, 600, &root, 600, 200, config, early);
+
+	const TreemapNode *freeEarly = FindByName(early, L"<Free Space>");
+	const TreemapNode *pendingEarly = FindByFlag(early, TREEMAP_FLAG_PENDING);
+	CHECK(freeEarly != nullptr && freeEarly->IsSpecial());
+	CHECK(freeEarly->x == 900 && freeEarly->w == 300 && freeEarly->h == 600);
+	CHECK(pendingEarly != nullptr && pendingEarly->IsSpecial());
+	// 150 of 600 used bytes scanned: a quarter of the used width.
+	const TreemapNode *a = FindByName(early, L"a.bin");
+	CHECK(a != nullptr && a->x == 0 && a->w == 225);
+	CHECK(pendingEarly->x == 225 && pendingEarly->w == 675);
+
+	// More scanned: the free block does not move, the scanned area grows
+	// from the same corner and the pending block shrinks.
+	root.AddFileWithArena(arena, L"b.bin", 5, 300, 300, 0);
+	TreemapEngine::ComputeLiveLayout(0, 0, 1200, 600, &root, 600, 200, config, late);
+	const TreemapNode *freeLate = FindByName(late, L"<Free Space>");
+	const TreemapNode *pendingLate = FindByFlag(late, TREEMAP_FLAG_PENDING);
+	CHECK(freeLate != nullptr);
+	CHECK(freeLate->x == freeEarly->x && freeLate->w == freeEarly->w);
+	CHECK(pendingLate != nullptr && pendingLate->x == 675 && pendingLate->w == 225);
+	CHECK(FindByName(late, L"a.bin") != nullptr && FindByName(late, L"b.bin") != nullptr);
+
+	// Fully scanned (or more, if files were written meanwhile): no pending block.
+	root.AddFileWithArena(arena, L"c.bin", 5, 200, 200, 0);
+	TreemapEngine::ComputeLiveLayout(0, 0, 1200, 600, &root, 600, 200, config, late);
+	CHECK(FindByFlag(late, TREEMAP_FLAG_PENDING) == nullptr);
+
+	// Hidden free space: the used area takes the whole window.
+	config.showFreeSpace = false;
+	CFolder partial;
+	partial.AddFileWithArena(arena, L"a.bin", 5, 300, 300, 0);
+	TreemapEngine::ComputeLiveLayout(0, 0, 1200, 600, &partial, 600, 200, config, late);
+	CHECK(FindByName(late, L"<Free Space>") == nullptr);
+	pendingLate = FindByFlag(late, TREEMAP_FLAG_PENDING);
+	CHECK(pendingLate != nullptr && pendingLate->x == 600 && pendingLate->w == 600);
+
+	// Pending and free blocks are never hit-test targets.
+	CHECK(TreemapEngine::HitTestItem(late, 1000, 300) == nullptr);
+	return 1;
+}
+
 int main()
 {
 	if (!test_null_and_empty_folder()) return 1;
@@ -502,6 +593,8 @@ int main()
 	if (!test_extreme_bias_and_density_filtering()) return 1;
 	if (!test_subthreshold_placeholder_depth_and_bounds()) return 1;
 	if (!test_unsorted_input_matches_finalized_layout()) return 1;
+	if (!test_scaled_title_bar()) return 1;
+	if (!test_live_layout_keeps_used_and_free_areas_fixed()) return 1;
 
 	printf("Treemap_test passed successfully.\n");
 	return 0;

@@ -2,6 +2,9 @@
 #include "spacemonger.h"
 #include "DriveDialog.h"
 #include "Lang.h"
+#include "DpiUtil.h"
+#include <commoncontrols.h>
+#include <shobjidl.h>
 
 namespace {
 
@@ -25,6 +28,7 @@ CDriveDialog::CDriveDialog(CWnd* pParent)
 BEGIN_MESSAGE_MAP(CDriveDialog, CDialog)
 	//{{AFX_MSG_MAP(CDriveDialog)
 	ON_NOTIFY(NM_DBLCLK, IDC_DRIVE_LIST, OnDriveDblClk)
+	ON_BN_CLICKED(IDC_OPEN_FOLDER, OnOpenFolder)
 	//}}AFX_MSG_MAP
 END_MESSAGE_MAP()
 
@@ -56,6 +60,31 @@ void CDriveDialog::OnOK()
 	}
 }
 
+// Any folder, including network shares: typing \\PC01\c$ into the folder
+// box of the picker works too.
+void CDriveDialog::OnOpenFolder()
+{
+	HRESULT init = ::CoInitializeEx(NULL, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+	IFileOpenDialog *picker = NULL;
+	if (SUCCEEDED(::CoCreateInstance(CLSID_FileOpenDialog, NULL, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&picker)))) {
+		DWORD options = 0;
+		picker->GetOptions(&options);
+		picker->SetOptions(options | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST);
+		IShellItem *item = NULL;
+		PWSTR path = NULL;
+		if (SUCCEEDED(picker->Show(m_hWnd)) && SUCCEEDED(picker->GetResult(&item))) {
+			if (SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &path)) && path != NULL) {
+				m_folder = path;
+				::CoTaskMemFree(path);
+			}
+			item->Release();
+		}
+		picker->Release();
+	}
+	if (SUCCEEDED(init)) ::CoUninitialize();
+	if (!m_folder.IsEmpty()) EndDialog(kFolderChosen);
+}
+
 void CDriveDialog::OnCancel()
 {
 	EndDialog(-1);
@@ -72,7 +101,9 @@ BOOL CDriveDialog::OnInitDialog()
 	int i, index;
 	LVITEMW item = {};
 
-	imagelist = ImageList_Create(32, 32, TRUE, 0, 26);
+	// Drive icons at the dialog's DPI (96 px at 300 %), not a fixed 32 px.
+	const int iconSize = MulDiv(32, (int)SM_GetWindowDpi(m_hWnd), 96);
+	imagelist = ImageList_Create(iconSize, iconSize, ILC_COLOR32 | ILC_MASK, 0, 26);
 
 	CListCtrl *lc = (CListCtrl *)GetDlgItem(IDC_DRIVE_LIST);
 	::SendMessage(lc->m_hWnd, LVM_SETIMAGELIST, (WPARAM)LVSIL_NORMAL, (LPARAM)(HIMAGELIST)imagelist);
@@ -80,13 +111,14 @@ BOOL CDriveDialog::OnInitDialog()
 	SetWindowText(CurLang->selectdrive);
 	SetDlgItemText(IDOK, CurLang->ok);
 	SetDlgItemText(IDCANCEL, CurLang->cancel);
+	SetDlgItemText(IDC_OPEN_FOLDER, CurLang->open_folder);
 
 	lc->InsertColumn(0, L"Name");
 	if (lc != NULL) {
 		lc->SetItemCount(26);
 		index = 0;
 		for (i = 'A'; i <= 'Z'; i++) {
-			driveinfo[i-'A'].LoadDriveInfo(i);
+			driveinfo[i-'A'].LoadDriveInfo((char)i, iconSize);
 			if (driveinfo[i-'A'].avail) {
 				ImageList_AddIcon(imagelist, driveinfo[i-'A'].icon);
 				item.mask = LVIF_STATE|LVIF_TEXT|LVIF_IMAGE|LVIF_PARAM;
@@ -103,8 +135,14 @@ BOOL CDriveDialog::OnInitDialog()
 			}
 			driveinfo[i-'A'].Free();
 		}
+		// Preselect the first drive (normally C:) so OK or Enter starts the scan.
+		if (index > 0) {
+			lc->SetItemState(0, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
+			lc->SetFocus();
+			return FALSE;	// focus set explicitly
+		}
 	}
-	
+
 	return TRUE;
 }
 
@@ -132,7 +170,7 @@ void CDriveInfo::Free(void)
 	}
 }
 
-void CDriveInfo::LoadDriveInfo(char let)
+void CDriveInfo::LoadDriveInfo(char let, int iconSize)
 {
 	Free();
 
@@ -152,11 +190,25 @@ void CDriveInfo::LoadDriveInfo(char let)
 		memset(&fileinfo, 0, sizeof(SHFILEINFO));
 
 		SHGetFileInfoW(name, 0, &fileinfo, sizeof(SHFILEINFOW),
-			SHGFI_DISPLAYNAME|SHGFI_ICON);
+			SHGFI_DISPLAYNAME|SHGFI_ICON|SHGFI_SYSICONINDEX);
 
 		avail = 1;
 		letter = let;
 		icon = fileinfo.hIcon;
+		// SHGFI_ICON is always 32 px; above that take the shell's 48 px or
+		// 256 px rendition and let the image list scale it down.
+		if (iconSize > 32) {
+			IImageList *shellImages = NULL;
+			int which = iconSize > 48 ? SHIL_JUMBO : SHIL_EXTRALARGE;
+			if (SUCCEEDED(SHGetImageList(which, IID_PPV_ARGS(&shellImages))) && shellImages != NULL) {
+				HICON large = NULL;
+				if (SUCCEEDED(shellImages->GetIcon(fileinfo.iIcon, ILD_TRANSPARENT, &large)) && large != NULL) {
+					if (icon != NULL) DestroyIcon(icon);
+					icon = large;
+				}
+				shellImages->Release();
+			}
+		}
 		longname = new wchar_t[wcslen(fileinfo.szDisplayName)+1];
 		wcscpy_s(longname, wcslen(fileinfo.szDisplayName)+1, fileinfo.szDisplayName);
 	}

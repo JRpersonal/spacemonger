@@ -2,6 +2,7 @@
 #include "stdafx.h"
 #include "SpaceMonger.h"
 #include "TipWnd.h"
+#include "DpiUtil.h"
 #include "TipWndText.h"
 
 #ifdef _DEBUG
@@ -65,6 +66,12 @@ enum {
 };
 
 /***************************************************************************/
+
+// Tip metrics are designed in 96-DPI pixels; scale them to the tip's monitor.
+static int TipScale(HWND hwnd, int px)
+{
+	return MulDiv(px, (int)SM_GetWindowDpi(hwnd), 96);
+}
 
 static HFONT SetBestFont(HDC dc, TipWndInfo *info)
 {
@@ -192,7 +199,7 @@ static LRESULT CALLBACK TipWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM l
 			SIZE iconoffset;
 			iconoffset.cx = iconoffset.cy = 0;
 			if (info->icon != NULL) {
-				int delta = (info->flags & 1) ? 32 : 16;
+				int delta = TipScale(hwnd, (info->flags & 1) ? 32 : 16);
 				switch (info->flags & 6) {
 				case TIPWND_ICON_LEFT:
 					pad.cx = delta + 4;
@@ -226,20 +233,24 @@ static LRESULT CALLBACK TipWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM l
 			}
 
 			if ((info->flags & (TIPWND_ALIGN_LEFT|TIPWND_ALIGN_RIGHT)) == TIPWND_ALIGN_LEFT)
-				textpoint.x = 1+info->hpadding;
+				textpoint.x = 1+TipScale(hwnd, info->hpadding);
 			else if ((info->flags & (TIPWND_ALIGN_LEFT|TIPWND_ALIGN_RIGHT)) == TIPWND_ALIGN_RIGHT)
-				textpoint.x = rect.right - 1 - info->hpadding - textsize.cx;
+				textpoint.x = rect.right - 1 - TipScale(hwnd, info->hpadding) - textsize.cx;
 			else textpoint.x = rect.right / 2 - textsize.cx / 2;
 
 			if ((info->flags & (TIPWND_ALIGN_TOP|TIPWND_ALIGN_BOTTOM)) == TIPWND_ALIGN_TOP)
-				textpoint.y = 1+info->vpadding;
+				textpoint.y = 1+TipScale(hwnd, info->vpadding);
 			else if ((info->flags & (TIPWND_ALIGN_TOP|TIPWND_ALIGN_BOTTOM)) == TIPWND_ALIGN_BOTTOM)
-				textpoint.y = rect.bottom - 1 - info->vpadding - textsize.cy;
+				textpoint.y = rect.bottom - 1 - TipScale(hwnd, info->vpadding) - textsize.cy;
 			else textpoint.y = rect.bottom / 2 - textsize.cy / 2;
 
-			if (info->icon != NULL)
-				::DrawIcon(dc, textpoint.x+iconoffset.cx,
-					textpoint.y+iconoffset.cy, info->icon);
+			if (info->icon != NULL) {
+				// DrawIcon would use the system icon size, which differs from the
+				// space reserved above on high-DPI screens.
+				int iconSize = TipScale(hwnd, (info->flags & 1) ? 32 : 16);
+				::DrawIconEx(dc, textpoint.x+iconoffset.cx, textpoint.y+iconoffset.cy,
+					info->icon, iconSize, iconSize, 0, NULL, DI_NORMAL);
+			}
 			textpoint.x += pad.cx;
 			textpoint.y += pad.cy;
 			DrawMultilineText(dc, info, &textpoint);
@@ -361,16 +372,16 @@ static LRESULT CALLBACK TipWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM l
 				::SelectObject(dc, oldfont);
 				::ReleaseDC(hwnd, dc);
 				if (info->icon != NULL) {
-					int delta = (info->flags & 1) ? 32 : 16;
+					int delta = TipScale(hwnd, (info->flags & 1) ? 32 : 16);
 					switch (info->flags & 6) {
 					case TIPWND_ICON_LEFT:
 					case TIPWND_ICON_RIGHT:
-						size.cx += delta + info->hpadding*2;
+						size.cx += delta + TipScale(hwnd, info->hpadding)*2;
 						if (size.cy < delta) size.cy = delta;
 						break;
 					case TIPWND_ICON_TOP:
 					case TIPWND_ICON_BOTTOM:
-						size.cy += delta + info->vpadding*2;
+						size.cy += delta + TipScale(hwnd, info->vpadding)*2;
 						if (size.cx < delta) size.cx = delta;
 						break;
 					}
@@ -378,10 +389,10 @@ static LRESULT CALLBACK TipWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM l
 
 				RECT rect;
 				::GetWindowRect(hwnd, &rect);
-				if (rect.right-rect.left != size.cx+2+info->hpadding*2
-					|| rect.bottom-rect.top != size.cy+2+info->vpadding*2)
+				if (rect.right-rect.left != size.cx+2+TipScale(hwnd, info->hpadding)*2
+					|| rect.bottom-rect.top != size.cy+2+TipScale(hwnd, info->vpadding)*2)
 					::SetWindowPos(hwnd, NULL, rect.left, rect.top,
-						size.cx+2+info->hpadding*2, size.cy+2+info->vpadding*2,
+						size.cx+2+TipScale(hwnd, info->hpadding)*2, size.cy+2+TipScale(hwnd, info->vpadding)*2,
 						SWP_NOACTIVATE|SWP_NOZORDER);
 				else ::RedrawWindow(hwnd, NULL, NULL, RDW_ERASE|RDW_INTERNALPAINT);
 			}
@@ -586,8 +597,8 @@ static LRESULT CALLBACK TipWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM l
 						point.x = GetSystemMetrics(SM_CXSCREEN) - (rect.right-rect.left) - 16;
 					if (point.y + (rect.bottom-rect.top) > GetSystemMetrics(SM_CYSCREEN) - 16)
 						point.y = GetSystemMetrics(SM_CYSCREEN) - (rect.bottom-rect.top) - 16;
-					if (rect.left != point.x+16 || rect.top != point.y+16) {
-						::SetWindowPos(hwnd, NULL, point.x+16, point.y+16,
+					if (rect.left != point.x+TipScale(hwnd, 16) || rect.top != point.y+TipScale(hwnd, 16)) {
+						::SetWindowPos(hwnd, NULL, point.x+TipScale(hwnd, 16), point.y+TipScale(hwnd, 16),
 							rect.right-rect.left, rect.bottom-rect.top, SWP_NOACTIVATE|SWP_NOZORDER);
 						info->ourmousex = info->ourmousey = -32768;
 					}

@@ -55,6 +55,8 @@ CFolder::CFolder()
 	size_self = size_children = 0;
 	parent = NULL;
 	parentindex = 0;
+	liveOutstanding = 0;
+	liveComplete = true;
 }
 
 CFolder::~CFolder()

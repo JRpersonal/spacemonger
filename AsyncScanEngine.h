@@ -83,13 +83,17 @@ public:
 	// The returned nodes never point back into the live tree (source is null,
 	// names are copied into outNameStorage), so callers may keep and render
 	// them without holding any lock, even while workers keep scanning.
+	// wholeVolume: the scan root is a volume root, so its final size is the
+	// volume's used space; the layout then keeps used/free areas fixed and
+	// grows the scanned part in place (TreemapEngine::ComputeLiveLayout).
 	void GenerateLiveLayout(
 		int w, int h,
 		ui64 totalDiskSpace,
 		ui64 freeDiskSpace,
 		const TreemapConfig& config,
 		std::vector<TreemapNode>& outNodes,
-		std::vector<std::wstring>& outNameStorage
+		std::vector<std::wstring>& outNameStorage,
+		bool wholeVolume = false
 	);
 #ifdef ASYNC_SCAN_BENCHMARK
 	unsigned int GetBenchmarkWorkerCount() const { return m_numThreads; }
@@ -100,6 +104,7 @@ public:
 private:
 	void WorkerThread(size_t workerIndex);
 	void ScanSubtree(size_t workerIndex, CFolder* folder, std::wstring& path, unsigned int depth);
+	void FinishFolder(CFolder* folder);
 	// Flags-only cancellation, safe to call from worker threads.
 	void Abort(bool failed = false);
 	void RecordScanError(unsigned long error, bool rootFailure, const std::wstring& path);

@@ -1,4 +1,3 @@
-
 #ifndef SETTINGSDIALOG_H
 #define SETTINGSDIALOG_H
 
@@ -12,8 +11,6 @@ protected:
 	//{{AFX_MSG(CSettingsDialog)
 	virtual void OnOK();
 	virtual void OnCancel();
-	virtual void OnShowNameTips();
-	virtual void OnShowInfoTips();
 	virtual void OnLang();
 	//}}AFX_MSG
 	DECLARE_MESSAGE_MAP()
@@ -21,8 +18,6 @@ protected:
 	void UpdateDialogForNewLanguage(void);
 
 	virtual BOOL OnInitDialog();
-	void EnableNameTipButtons(BOOL bEnable);
-	void EnableInfoTipButtons(BOOL bEnable);
 
 protected:
 	char oldlang[4];

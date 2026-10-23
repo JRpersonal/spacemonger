@@ -1,1 +1,6 @@
+# Shows the "Sponsor" button on the GitHub repository page.
+# Same accounts as JRpersonal/streborn.
 github: JRpersonal
+ko_fi: streborn
+custom:
+  - "https://paypal.me/JR31337"

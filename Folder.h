@@ -58,6 +58,13 @@ public:
 	ui64 size_self, size_children;
 
 	unsigned int cur, max;
+
+	// Live scan bookkeeping (guarded by the scan engine's tree lock): work
+	// still open below this folder (its own listing plus unfinished child
+	// folders), and whether everything below it has been read. Folders not
+	// created by a running scan are complete.
+	int liveOutstanding;
+	bool liveComplete;
 };
 
 #endif // FOLDER_H

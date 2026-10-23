@@ -10,6 +10,8 @@ namespace {
 	const char kProjectWebsiteUrlText[] = "https://github.com/JRpersonal/spacemonger";
 	const wchar_t kReportBugUrl[] = L"https://github.com/JRpersonal/spacemonger/issues";
 	const char kReportBugUrlText[] = "https://github.com/JRpersonal/spacemonger/issues";
+	const wchar_t kLicenseUrl[] = L"https://github.com/JRpersonal/spacemonger/blob/master/LICENSE.txt";
+	const char kLicenseUrlText[] = "https://github.com/JRpersonal/spacemonger/blob/master/LICENSE.txt";
 }
 
 #ifdef _DEBUG
@@ -27,6 +29,7 @@ BEGIN_MESSAGE_MAP(CAboutDialog, CDialog)
 	//{{AFX_MSG_MAP(CAboutDialog)
 	ON_BN_CLICKED(IDC_PROJECT_WEBSITE, OnProjectWebsite)
 	ON_BN_CLICKED(IDC_REPORT_BUG, OnReportBug)
+	ON_BN_CLICKED(IDC_LICENSE, OnLicense)
 	//}}AFX_MSG_MAP
 END_MESSAGE_MAP()
 
@@ -41,6 +44,7 @@ BOOL CAboutDialog::OnInitDialog()
 	SetDlgItemText(IDC_STATIC_MAINTAINER, CurLang->maintainer);
 	SetDlgItemText(IDC_PROJECT_WEBSITE, CurLang->project_website);
 	SetDlgItemText(IDC_REPORT_BUG, CurLang->report_bug);
+	SetDlgItemText(IDC_LICENSE, CurLang->license_button);
 	SetDlgItemText(IDOK, CurLang->ok);
 
 	return TRUE;
@@ -64,4 +68,9 @@ void CAboutDialog::OnProjectWebsite()
 void CAboutDialog::OnReportBug()
 {
 	OpenUrl(kReportBugUrl, kReportBugUrlText);
+}
+
+void CAboutDialog::OnLicense()
+{
+	OpenUrl(kLicenseUrl, kLicenseUrlText);
 }

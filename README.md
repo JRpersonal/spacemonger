@@ -14,6 +14,10 @@
 [![Provenance: Sigstore](https://img.shields.io/badge/provenance-Sigstore-6f42c1?logo=sigstore)](SECURITY.md#verifying-a-download)
 [![Fork of Daduck/spacemonger](https://img.shields.io/badge/fork%20of-Daduck%2Fspacemonger-lightgrey?logo=github)](https://github.com/Daduck/spacemonger)
 
+[![GitHub Sponsors](https://img.shields.io/github/sponsors/JRpersonal?label=Sponsor%20on%20GitHub&logo=GitHub&color=ea4aaa)](https://github.com/sponsors/JRpersonal)
+[![Ko-fi](https://img.shields.io/badge/Ko--fi-support-FF5E5B?logo=ko-fi&logoColor=white)](https://ko-fi.com/streborn)
+[![PayPal](https://img.shields.io/badge/PayPal-donate-00457C?logo=paypal&logoColor=white)](https://paypal.me/JR31337)
+
 SpaceMonger is a native Windows disk-space visualizer with a classic MFC
 interface, background scanning, and a live treemap: your whole drive as one
 picture, where the larger the rectangle, the more space it takes.
@@ -32,8 +36,18 @@ and carry Sigstore build provenance. [How to verify](SECURITY.md#verifying-a-dow
 
 ## Features
 
-- Treemap of a drive or folder, coloured by depth; zoom in/out, run/open,
-  properties, delete to the Recycle Bin, right-click menu.
+- Treemap of a drive, folder or network share (`\\PC01\c$`), coloured by
+  depth, muted or by file type; zoom with the mouse wheel and keys, show in
+  Explorer, properties, delete to the Recycle Bin. Drag a folder onto the
+  window to scan it.
+- *Free Up Space*: one click removes temporary files, browser caches and the
+  Recycle Bin; your biggest files are listed with tips and can go to the
+  Recycle Bin together.
+- System content (Windows, Program Files, ...) is shown muted and can be
+  hidden; *Run as administrator* restarts elevated to read the rest.
+- CSV export (right-click > *Export list*, `Ctrl+E`) and a headless report
+  mode for company rollouts, see [Command line](#command-line).
+- English, German and French, following the Windows display language.
 - Multithreaded scanner; the treemap builds live while the scan runs
   (at most every 250 ms, only when something changed).
 - Unicode names and long paths end to end; junctions, symlinks, sparse files
@@ -45,6 +59,27 @@ and carry Sigstore build provenance. [How to verify](SECURITY.md#verifying-a-dow
 
 Known limitation: hard links are counted once per link. Details in
 [README.TXT](README.TXT).
+
+## Command line
+
+```text
+SpaceMonger.exe [path] [/report <file or folder>] [/top N] [/hide-system]
+```
+
+| Example | |
+|---|---|
+| `SpaceMonger.exe D:\` | opens the window and scans D: right away (no drive dialog) |
+| `SpaceMonger.exe \\PC01\c$` | an admin scans a remote PC over its admin share |
+| `SpaceMonger.exe /report \\srv\reports\` | no window: scans the Windows drive, writes `\\srv\reports\<COMPUTER>_<yyyy-mm-dd>.csv` and exits |
+| `SpaceMonger.exe \\PC01\c$ /report pc01.csv /top 50 /hide-system` | remote report with the 50 biggest folders and files, without system content |
+
+The report lists drive size, used, free and *not readable* space, then the
+largest folders and files with size, share, file count and date. It is UTF-8
+with the list separator of the user's locale, so Excel opens it in columns.
+Exit codes: `0` written, `1` invalid arguments (`/?` prints the usage
+to the calling console), `2` scan failed, `3` report not written. For a
+rollout, ship the signed exe and a shortcut with the path for users, or run
+the `/report` line from a logon script or scheduled task.
 
 ## Documentation
 
@@ -64,6 +99,13 @@ Historical implementation records:
 [live-scan design](docs/superpowers/specs/2026-08-15-live-progressive-treemap-scan-design.md) /
 [plan](docs/superpowers/plans/2026-08-15-live-progressive-treemap-scan.md).
 They describe the original work; implementation-status notes record later decisions.
+
+## Support the project
+
+SpaceMonger is free and funded by donations:
+[GitHub Sponsors](https://github.com/sponsors/JRpersonal) ·
+[Ko-fi](https://ko-fi.com/streborn) ·
+[PayPal](https://paypal.me/JR31337).
 
 ## Open source
 

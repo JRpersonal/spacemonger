@@ -12,6 +12,7 @@ protected:
 	virtual BOOL OnInitDialog();
 	afx_msg void OnProjectWebsite();
 	afx_msg void OnReportBug();
+	afx_msg void OnLicense();
 	//}}AFX_MSG
 	DECLARE_MESSAGE_MAP()
 };

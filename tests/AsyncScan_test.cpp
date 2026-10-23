@@ -453,6 +453,26 @@ static int test_live_layout_nested_folders()
 	CHECK(!foundScanning); // Scanning block is removed
 	CHECK(foundFreeSpace);
 
+	// Whole-volume mode: the used/free split is fixed (150000 used of
+	// 200000), so the free block covers the last quarter of the width.
+	engine.GenerateLiveLayout(1000, 800, 200000, 50000, config, nodes, names, true);
+	bool foundFixedFree = false;
+	bool foundScannedFolder = false;
+	for (const auto& n : nodes) {
+		CHECK(n.source == nullptr);
+		if (n.name != nullptr && wcscmp(n.name, L"<Free Space>") == 0) {
+			foundFixedFree = true;
+			CHECK(n.IsSpecial());
+			CHECK(n.x == 750 && n.w == 250 && n.h == 800);
+		}
+		if (n.name != nullptr && wcscmp(n.name, L"FolderA") == 0) {
+			foundScannedFolder = true;
+			CHECK(n.x + n.w <= 750);
+		}
+	}
+	CHECK(foundFixedFree);
+	CHECK(foundScannedFolder);
+
 	CStringArena targetArena;
 	CFolder* root = engine.DetachResult(targetArena);
 	CHECK(root != NULL);

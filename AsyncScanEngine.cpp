@@ -201,6 +201,8 @@ bool AsyncScanEngine::StartScan(const std::wstring& rootPath, ui64 clusterMask, 
 	// Enqueue root task
 	{
 		std::lock_guard<std::mutex> lock(m_queueMutex);
+		m_rootFolder->liveOutstanding = 1;
+		m_rootFolder->liveComplete = false;
 		m_taskQueue.push(ScanTask{m_rootFolder, m_rootPath, 0});
 		m_pendingTasks.store(1);
 	}
@@ -245,9 +247,28 @@ void AsyncScanEngine::WorkerThread(size_t workerIndex)
 	m_activeWorkers.fetch_sub(1);
 }
 
+// A folder's own listing is done: close it, and every ancestor whose last
+// open piece of work this was, so the live map can show finished folders.
+void AsyncScanEngine::FinishFolder(CFolder* folder)
+{
+	std::lock_guard<std::mutex> lock(m_treeMutex);
+	while (folder != nullptr && --folder->liveOutstanding <= 0) {
+		folder->liveOutstanding = 0;
+		folder->liveComplete = true;
+		folder = folder->parent;
+	}
+}
+
 void AsyncScanEngine::ScanSubtree(size_t workerIndex, CFolder* folder, std::wstring& path, unsigned int depth)
 {
-	if (m_cancelled.load() || folder == nullptr) return;
+	if (folder == nullptr) return;
+	// Runs on every way out of this function, early returns included.
+	struct Finish {
+		AsyncScanEngine *engine;
+		CFolder *folder;
+		~Finish() { engine->FinishFolder(folder); }
+	} finish{this, folder};
+	if (m_cancelled.load()) return;
 	if (depth > 128) {
 		RecordScanError(ERROR_DIRECTORY, false, path);
 		return;
@@ -376,6 +397,12 @@ void AsyncScanEngine::ScanSubtree(size_t workerIndex, CFolder* folder, std::wstr
 #endif
 			added = folder->AddFolderWithArena(*m_workerArenas[workerIndex], dir.name.c_str(),
 				(ui32)dir.name.length(), child, dir.writeTime);
+			if (added) {
+				// Open until its own listing (and everything below) is done.
+				child->liveOutstanding = 1;
+				child->liveComplete = false;
+				folder->liveOutstanding++;
+			}
 		}
 
 		if (!added) {
@@ -580,13 +607,31 @@ static ui64 ComputeLiveSizes(CFolder* folder)
 	return folder->size_self + total_children;
 }
 
+// Detach a snapshot from the live tree: workers keep mutating folder arrays
+// after the tree lock is released, and temporary roots die with the frame.
+// Copying names and nulling source makes the nodes safe to keep and draw.
+// reserve() guarantees no reallocation, so c_str() pointers stay stable.
+static void DetachLiveNodes(std::vector<TreemapNode>& nodes, std::vector<std::wstring>& nameStorage)
+{
+	nameStorage.reserve(nodes.size());
+	for (auto& node : nodes) {
+		if (node.name != nullptr) {
+			nameStorage.emplace_back(node.name);
+			node.name = nameStorage.back().c_str();
+		}
+		node.source = nullptr;
+		node.index = (ui32)-1;
+	}
+}
+
 void AsyncScanEngine::GenerateLiveLayout(
 	int w, int h,
 	ui64 totalDiskSpace,
 	ui64 freeDiskSpace,
 	const TreemapConfig& config,
 	std::vector<TreemapNode>& outNodes,
-	std::vector<std::wstring>& outNameStorage)
+	std::vector<std::wstring>& outNameStorage,
+	bool wholeVolume)
 {
 	outNodes.clear();
 	outNameStorage.clear();
@@ -601,6 +646,16 @@ void AsyncScanEngine::GenerateLiveLayout(
 
 	try {
 		ComputeLiveSizes(m_rootFolder);
+
+		if (wholeVolume && totalDiskSpace > freeDiskSpace) {
+			TreemapConfig liveConfig = config;
+			liveConfig.volumeRoot = m_rootFolder;
+			liveConfig.liveMode = true;
+			TreemapEngine::ComputeLiveLayout(0, 0, w, h, m_rootFolder,
+				totalDiskSpace - freeDiskSpace, freeDiskSpace, liveConfig, outNodes);
+			DetachLiveNodes(outNodes, outNameStorage);
+			return;
+		}
 
 		unsigned int rootCount = m_rootFolder->cur;
 		if (rootCount == 0 && totalDiskSpace == 0) return;
@@ -651,21 +706,10 @@ void AsyncScanEngine::GenerateLiveLayout(
 			liveRoot.cur++;
 		}
 
-		TreemapEngine::ComputeLayout(0, 0, w, h, &liveRoot, 0, config, outNodes);
-
-		// Detach the snapshot from the live tree: workers keep mutating folder
-		// arrays after this lock is released, and liveRoot dies with this frame.
-		// Copying names and nulling source makes the nodes safe to keep and draw.
-		// reserve() guarantees no reallocation, so c_str() pointers stay stable.
-		outNameStorage.reserve(outNodes.size());
-		for (auto& node : outNodes) {
-			if (node.name != nullptr) {
-				outNameStorage.emplace_back(node.name);
-				node.name = outNameStorage.back().c_str();
-			}
-			node.source = nullptr;
-			node.index = (ui32)-1;
-		}
+		TreemapConfig liveConfig = config;
+		liveConfig.liveMode = true;
+		TreemapEngine::ComputeLayout(0, 0, w, h, &liveRoot, 0, liveConfig, outNodes);
+		DetachLiveNodes(outNodes, outNameStorage);
 
 	} catch (const std::bad_alloc&) {
 		// Discard an incomplete frame; the scan tree remains owned by the engine.
