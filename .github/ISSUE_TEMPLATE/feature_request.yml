@@ -1,0 +1,17 @@
+name: Feature request
+description: Suggest an improvement.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would it solve?
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: Your idea
+      description: SpaceMonger stays a single classic-looking .exe without installer or dependencies; ideas that keep that are easiest to accept.
+    validations:
+      required: true

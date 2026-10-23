@@ -32,7 +32,7 @@ Lang LangFr = {
 		L" for this program's behavior.  There are no warranties of any"
 		L" kind, expressed or implied, on this product.»",
 	L"Une continuation indépendante du SpaceMonger classique.",
-	L"Mainteneur actuel : Johnny J. Andersen (Anderki.dk)",
+	L"Mainteneurs : J. J. Andersen, Jens Roggenfelder",
 	L"Site &Web du projet",
 	L"Signaler un &bogue",
 	L"SpaceMonger n'a pas pu ouvrir cette adresse :\n%s",

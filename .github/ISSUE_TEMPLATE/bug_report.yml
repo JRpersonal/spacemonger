@@ -1,0 +1,45 @@
+name: Bug report
+description: Something does not work as expected.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Security problems go to the [private advisory form](https://github.com/JRpersonal/spacemonger/security/advisories/new) instead.
+  - type: input
+    id: version
+    attributes:
+      label: SpaceMonger version and architecture
+      description: Help > About, or the file properties of SpaceMonger.exe. Which file did you download (x64, arm64, x86)?
+      placeholder: 1.4.4, SpaceMonger-x64.exe
+    validations:
+      required: true
+  - type: input
+    id: windows
+    attributes:
+      label: Windows version
+      placeholder: Windows 11 24H2, 150 % scaling on a 4K monitor
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Which drive or folder (local, network, OneDrive, ...), roughly how many files, which buttons.
+      placeholder: |
+        1. Open, pick drive D:
+        2. Wait for the scan to finish
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: extra
+    attributes:
+      label: Screenshots or the "Skipped" details
+      description: For partial scans, the Copy paths button in the details dialog helps. Remove anything private.

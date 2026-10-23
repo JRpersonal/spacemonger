@@ -6,10 +6,10 @@
 #include <shellapi.h>
 
 namespace {
-	const wchar_t kProjectWebsiteUrl[] = L"https://andedammen.dk/spacemonger";
-	const char kProjectWebsiteUrlText[] = "https://andedammen.dk/spacemonger";
-	const wchar_t kReportBugUrl[] = L"https://github.com/Daduck/spacemonger/issues";
-	const char kReportBugUrlText[] = "https://github.com/Daduck/spacemonger/issues";
+	const wchar_t kProjectWebsiteUrl[] = L"https://github.com/JRpersonal/spacemonger";
+	const char kProjectWebsiteUrlText[] = "https://github.com/JRpersonal/spacemonger";
+	const wchar_t kReportBugUrl[] = L"https://github.com/JRpersonal/spacemonger/issues";
+	const char kReportBugUrlText[] = "https://github.com/JRpersonal/spacemonger/issues";
 }
 
 #ifdef _DEBUG

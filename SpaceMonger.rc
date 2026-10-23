@@ -306,12 +306,12 @@ BEGIN
     BEGIN
         BLOCK "040904b0"
         BEGIN
-            VALUE "Comments", "Visit https://andedammen.dk/spacemonger for the latest version\0"
-            VALUE "CompanyName", "65 Systems\0"
-            VALUE "FileDescription", "SpaceMonger Program File\0"
+            VALUE "Comments", "Latest version: https://github.com/JRpersonal/spacemonger/releases\0"
+            VALUE "CompanyName", "Open Source Developer Jens Roggenfelder\0"
+            VALUE "FileDescription", "SpaceMonger disk space visualizer\0"
             VALUE "FileVersion", "1, 4, 4, 0\0"
             VALUE "InternalName", "SpaceMonger\0"
-            VALUE "LegalCopyright", "Copyright (C) 1997-2000 Sean Werkema, (C) 2026 Johnny J. Andersen\0"
+            VALUE "LegalCopyright", "(C) 1998-2020 Sean Werkema, (C) 2026 Johnny J. Andersen, Jens Roggenfelder. MIT License\0"
             VALUE "LegalTrademarks", "\0"
             VALUE "OriginalFilename", "SpaceMonger.exe\0"
             VALUE "PrivateBuild", "\0"
