@@ -120,6 +120,9 @@ jobs:
       - name: Test
         run: ctest --preset vs2022-x64-release --timeout 120 --output-on-failure
 
+      - name: Smoke test (app starts)
+        run: .\tools\smoke-test.ps1 -Path build/vs2022-x64/Release/SpaceMonger.exe
+
   build:
     needs: verify-source
     runs-on: windows-2022
@@ -141,6 +144,9 @@ jobs:
 
       - name: Build
         run: cmake --build --preset ${{ matrix.preset }}-release
+
+      - name: Smoke test (app starts; ARM64 manifest only)
+        run: .\tools\smoke-test.ps1 -Path build/${{ matrix.preset }}/Release/SpaceMonger.exe ${{ matrix.arch == 'arm64' && '-ManifestOnly' || '' }}
 
       - name: Stage executable
         run: |
