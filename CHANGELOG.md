@@ -7,6 +7,10 @@ every release needs a `## [X.Y.Z]` section here first.
 
 ## [Unreleased]
 
+## [1.4.5] - 2026-10-23
+
+First release of this fork, now code signed.
+
 ### Changed
 - The About dialog, file properties and `README.TXT` point to this repository
   (`JRpersonal/spacemonger`) for downloads and bug reports, and name both
