@@ -1,0 +1,9 @@
+# Pull requests request a review from the owners below automatically.
+
+*                      @JRpersonal
+
+# Release path: workflows, signing and version tooling, license.
+/.github/              @JRpersonal
+/tools/                @JRpersonal
+/LICENSE.txt           @JRpersonal
+/SECURITY.md           @JRpersonal

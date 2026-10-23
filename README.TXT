@@ -11,9 +11,9 @@ computer.  Instead of viewing your disk as unhelpful little icons or
 pie charts, you see a single picture that shows you at a glance how
 much space every file and folder are using.
 
-The latest version of SpaceMonger is always available at its web page:
+The latest version of SpaceMonger is always available at:
 
-    https://andedammen.dk/spacemonger
+    https://github.com/JRpersonal/spacemonger/releases/latest
 
 
 SYSTEM REQUIREMENTS
@@ -29,7 +29,9 @@ has more than enough memory and CPU power to run SpaceMonger efficiently.
 INSTALLATION
 ------------
 
-Download the standalone SpaceMonger.exe for your Windows architecture.
+Download the standalone executable for your Windows architecture
+(SpaceMonger-x64.exe for most PCs, SpaceMonger-arm64.exe for Windows on ARM,
+SpaceMonger-x86.exe for 32-bit Windows). Releases are code signed.
 No installer, archive, or accompanying files are required. Save the executable
 in a folder of your choice. Release notes are available on the website.
 
@@ -228,11 +230,11 @@ COPYRIGHT AND CONTACT INFORMATION
 ---------------------------------
 
 SpaceMonger is Copyright (C) 1998, 1999, and 2000 by Sean Werkema.
-Modernized and maintained since 2026 by Johnny J. Andersen.
+Modernized since 2026 by Johnny J. Andersen (github.com/Daduck/spacemonger).
+This fork is maintained by Jens Roggenfelder. SpaceMonger is open source
+under the MIT License (see LICENSE.txt in the source repository).
 
-Questions, bug reports, and feature requests for the modernized
-releases are welcome at:
+Questions, bug reports, and feature requests are welcome at:
 
-    https://andedammen.dk/spacemonger
-    https://github.com/Daduck/spacemonger
+    https://github.com/JRpersonal/spacemonger/issues
 

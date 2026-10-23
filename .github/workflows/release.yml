@@ -1,27 +1,32 @@
 name: release
 
-# Cut a release with:  gh workflow run release.yml -f version=vX.Y.Z
+# Cut a release with:
+#   gh workflow run release.yml -f version=vX.Y.Z
 # Leave `version` empty for a build-only dry-run (also runs weekly, so a
 # Dependabot bump of a release-only action is caught before the next real tag).
+# Full procedure, one-time setup and troubleshooting: docs/RELEASING.md.
 #
-# Produces, for Win32 / x64 / ARM64:
-#   SpaceMonger-<arch>.exe
+# Produces, for x86 / x64 / ARM64:
+#   SpaceMonger-x86.exe  SpaceMonger-x64.exe  SpaceMonger-arm64.exe
 #   SHA256SUMS
-# Every artifact is attested via Sigstore (actions/attest-build-provenance).
+# Real releases are Authenticode-signed with the maintainer's Certum Open
+# Source certificate (SimplySign cloud key, self-hosted runner), and every
+# published file is attested via Sigstore (actions/attest-build-provenance)
+# AFTER signing, so the attestation covers the exact bytes users download.
 # No file name carries the version, so each has a permanent
-#   releases/latest/download/<name>
+#   https://github.com/JRpersonal/spacemonger/releases/latest/download/<name>
 # URL. The publish step creates the tag itself; there is deliberately NO
 # tag-push trigger (a second run on the freshly created tag would repeat the
-# pipeline without the `version` input).
+# pipeline without the `version` input and skip signing).
 on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Release version (vX.Y.Z). Leave empty for a build-only dry-run.'
+        description: 'Release version (vX.Y.Z or vX.Y.Z-rc.N). Leave empty for a build-only dry-run.'
         required: false
         type: string
       prerelease:
-        description: 'Publish as a pre-release (excluded from "latest").'
+        description: 'Publish as a pre-release (excluded from "latest", winget and the website links).'
         required: false
         default: false
         type: boolean
@@ -36,24 +41,75 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # Anything that should fail a release fails here, before the multi-arch build.
+  # Anything that should fail a release fails here, before the multi-arch build
+  # and long before anything reaches the signing machine.
   verify-source:
     runs-on: windows-2022
     timeout-minutes: 30
+    outputs:
+      # Job-level `if:` cannot evaluate step logic, so the gate is exported.
+      # Signing needs the maintainer's live SimplySign session, which no
+      # scheduled or manual dry-run can be expected to have: dry-runs skip the
+      # job, real releases hard-require it (see "Refuse to publish unsigned").
+      sign: ${{ steps.gate.outputs.sign }}
+      version: ${{ steps.version.outputs.version }}
     steps:
-      - name: Validate version input
+      - name: Validate release inputs
         if: inputs.version != ''
         env:
           VERSION: ${{ inputs.version }}
+          PRERELEASE: ${{ inputs.prerelease }}
+          REF: ${{ github.ref }}
         run: |
           if ($env:VERSION -notmatch '^v\d+\.\d+\.\d+(-[0-9A-Za-z.]+)?$') {
-            Write-Error "version must look like vX.Y.Z (got '$env:VERSION')"
-            exit 1
+            Write-Error "version must look like vX.Y.Z or vX.Y.Z-rc.N (got '$env:VERSION')"; exit 1
           }
+          # A suffixed tag published as "latest" would become everyone's
+          # download; a plain tag hidden as pre-release would reach nobody.
+          $suffixed = $env:VERSION -match '-'
+          if ($suffixed -and $env:PRERELEASE -ne 'true') { Write-Error "$env:VERSION has a pre-release suffix; tick 'prerelease'"; exit 1 }
+          if (-not $suffixed -and $env:PRERELEASE -eq 'true') { Write-Error "a pre-release must be tagged vX.Y.Z-rc.N"; exit 1 }
+          if ($env:REF -ne 'refs/heads/master') { Write-Error "real releases are cut from master only (got $env:REF)"; exit 1 }
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+
+      - name: Tag must not exist yet
+        if: inputs.version != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          gh api "repos/${{ github.repository }}/git/ref/tags/$env:VERSION" 2>$null | Out-Null
+          if ($LASTEXITCODE -eq 0) { Write-Error "tag $env:VERSION already exists; bump the version (tools/version.ps1 -Set X.Y.Z)"; exit 1 }
+          exit 0
+
+      - name: Version is consistent (and matches the tag)
+        id: version
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          if ($env:VERSION) { .\tools\version.ps1 -Expected $env:VERSION } else { .\tools\version.ps1 }
+
+      - name: CHANGELOG has an entry for this version
+        if: inputs.version != ''
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          if (-not (Select-String -Path CHANGELOG.md -Pattern "^## \[$([regex]::Escape($env:VERSION))\]" -Quiet)) {
+            Write-Error "CHANGELOG.md has no '## [$env:VERSION]' section"; exit 1
+          }
+
+      - name: Signing gate
+        id: gate
+        env:
+          VERSION: ${{ inputs.version }}
+          CERT_THUMBPRINT: ${{ vars.CERT_THUMBPRINT }}
+        run: |
+          $sign = if ($env:VERSION -and $env:CERT_THUMBPRINT) { 'true' } else { 'false' }
+          "sign=$sign" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          Write-Host "sign=$sign"
 
       - name: Configure
         run: cmake --preset vs2022-x64
@@ -72,9 +128,9 @@ jobs:
       fail-fast: true
       matrix:
         include:
-          - { preset: vs2022-win32, arch: Win32 }
+          - { preset: vs2022-win32, arch: x86 }
           - { preset: vs2022-x64,   arch: x64 }
-          - { preset: vs2022-arm64, arch: ARM64 }
+          - { preset: vs2022-arm64, arch: arm64 }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -93,28 +149,122 @@ jobs:
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: release-${{ matrix.arch }}
+          name: unsigned-${{ matrix.arch }}
           path: dist/SpaceMonger-${{ matrix.arch }}.exe
           if-no-files-found: error
+          retention-days: 30
+
+  # Runs on the maintainer's self-hosted runner (labels: self-hosted, windows,
+  # signing) where a SimplySign Desktop session is opened MANUALLY before the
+  # release: the Certum cloud key is only reachable through such a session and
+  # there is no reliable headless login. The `release` environment limits the
+  # job to master, so no pull request or other branch can ever reach the
+  # signing machine. The job only signs; hashing, attestation and publishing
+  # happen on GitHub-hosted runners.
+  sign-windows:
+    needs: [verify-source, build]
+    if: needs.verify-source.outputs.sign == 'true' && github.repository == 'JRpersonal/spacemonger'
+    runs-on: [self-hosted, windows, signing]
+    environment: release
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    env:
+      CERT_THUMBPRINT: ${{ vars.CERT_THUMBPRINT }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Download unsigned builds
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: unsigned-*
+          path: dist
+          merge-multiple: true
+
+      - name: Sign and verify (Certum SimplySign session must be open)
+        shell: powershell
+        run: .\tools\certum-sign.ps1 -File (Get-ChildItem dist\SpaceMonger-*.exe | ForEach-Object FullName)
+
+      - name: Upload signed builds
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: signed
+          path: dist/SpaceMonger-*.exe
+          if-no-files-found: error
+          retention-days: 30
 
   publish:
-    needs: build
+    needs: [verify-source, build, sign-windows]
+    # sign-windows may be SKIPPED, but only on a dry-run; the guard step below
+    # turns a skipped signature on a real release into a hard failure. The
+    # explicit result checks are needed because a skipped job in `needs` would
+    # otherwise skip this job too.
+    if: |
+      !cancelled() &&
+      needs.verify-source.result == 'success' &&
+      needs.build.result == 'success' &&
+      (needs.sign-windows.result == 'success' || needs.sign-windows.result == 'skipped')
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     permissions:
       contents: write        # create the tag and release
       id-token: write        # Sigstore attestation
       attestations: write
+    env:
+      VERSION: ${{ inputs.version }}
+      SOURCE_VERSION: ${{ needs.verify-source.outputs.version }}
+      SIGN_RESULT: ${{ needs.sign-windows.result }}
+      # Job-level so step `if:`s can test for the secret's presence.
+      VT_API_KEY: ${{ secrets.VT_API_KEY }}
     steps:
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          pattern: release-*
+          persist-credentials: false
+
+      - name: Download unsigned builds
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: unsigned-*
           path: dist
           merge-multiple: true
 
+      - name: Download signed builds
+        if: needs.sign-windows.result == 'success'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: signed
+          path: signed
+
+      # Last line of defence: a real release whose signing job did not succeed
+      # fails here, loudly, instead of publishing a download that trips
+      # SmartScreen for everyone.
+      - name: Refuse to publish unsigned builds
+        if: inputs.version != ''
+        run: |
+          if [ "$SIGN_RESULT" != "success" ]; then
+            echo "::error::sign-windows did not succeed (result: ${SIGN_RESULT:-none}). Refusing to publish unsigned executables. Check vars.CERT_THUMBPRINT, start the signing runner, open the SimplySign Desktop session and run the workflow again."
+            exit 1
+          fi
+
+      - name: Swap in the signed builds
+        if: needs.sign-windows.result == 'success'
+        run: |
+          set -eu
+          for f in signed/SpaceMonger-*.exe; do
+            name=$(basename "$f")
+            # Signing must have changed the bytes; identical files mean the
+            # signer silently did nothing.
+            if cmp -s "$f" "dist/$name"; then echo "::error::$name is unchanged after signing"; exit 1; fi
+            mv -f "$f" "dist/$name"
+          done
+          ls -la dist
+
       - name: Checksums
         working-directory: dist
-        run: sha256sum SpaceMonger-*.exe | tee SHA256SUMS
+        run: |
+          sha256sum SpaceMonger-x86.exe SpaceMonger-x64.exe SpaceMonger-arm64.exe | tee SHA256SUMS
 
       - name: Sigstore attestation
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
@@ -123,17 +273,186 @@ jobs:
             dist/SpaceMonger-*.exe
             dist/SHA256SUMS
 
-      # Gated on a non-empty version, so scheduled and dry runs stop here.
+      - name: VirusTotal scan (upload binaries)
+        # Makes each release hash known to VirusTotal and gives users a public
+        # per-hash report. A young signature still draws the odd heuristic
+        # false-positive, so the report is the rebuttal anyone can check.
+        # Never fails the release; skipped without VT_API_KEY.
+        if: inputs.version != '' && env.VT_API_KEY != ''
+        continue-on-error: true
+        uses: crazy-max/ghaction-virustotal@936d8c5c00afe97d3d9a1af26d017cfdf26800a2 # v5.0.0
+        with:
+          vt_api_key: ${{ secrets.VT_API_KEY }}
+          update_release_body: false
+          # The free public API allows 4 lookups per minute.
+          request_rate: 4
+          files: |
+            dist/SpaceMonger-x86.exe
+            dist/SpaceMonger-x64.exe
+            dist/SpaceMonger-arm64.exe
+
+      - name: VirusTotal gate (stop on broad detection)
+        # A handful of heuristic hits is normal and must NOT block a release;
+        # only a broad detection (>= 10 engines or >= 15 %) does. If VirusTotal
+        # does not finish within the budget the release proceeds with a warning.
+        if: inputs.version != '' && env.VT_API_KEY != ''
+        working-directory: dist
+        run: |
+          set -u
+          THRESHOLD=10
+          RATIO_PCT=15
+          DEADLINE=$(( $(date +%s) + 360 ))
+          fail=0
+          for f in SpaceMonger-x86.exe SpaceMonger-x64.exe SpaceMonger-arm64.exe; do
+            sha=$(awk -v n="$f" '$2==n{print $1}' SHA256SUMS)
+            mal=""; total=0; resp=""
+            while [ "$(date +%s)" -lt "$DEADLINE" ]; do
+              resp=$(curl -s -H "x-apikey: $VT_API_KEY" "https://www.virustotal.com/api/v3/files/$sha" || true)
+              # A fresh upload briefly reports all-zero stats; wait for verdicts.
+              total=$(printf '%s' "$resp" | jq -r '[.data.attributes.last_analysis_stats[]?] | add // 0' 2>/dev/null || echo 0)
+              if [ "${total:-0}" -gt 0 ]; then
+                mal=$(printf '%s' "$resp" | jq -r '.data.attributes.last_analysis_stats.malicious // 0')
+                break
+              fi
+              sleep 20
+            done
+            if [ -z "$mal" ]; then echo "::warning::VirusTotal did not finish $f in time; not gating it"; continue; fi
+            pct=$(( mal * 100 / total ))
+            echo "$f: $mal/$total engines malicious (${pct}%)"
+            if [ "$mal" -gt 0 ]; then
+              printf '%s' "$resp" | jq -r '.data.attributes.last_analysis_results | to_entries[] | select(.value.category=="malicious" or .value.category=="suspicious") | "    \(.value.category): \(.key) -> \(.value.result)"' 2>/dev/null || true
+            fi
+            if [ "$mal" -ge "$THRESHOLD" ] || [ "$pct" -ge "$RATIO_PCT" ]; then
+              echo "::error::$f is flagged by $mal of $total engines (${pct}%)"; fail=1
+            fi
+          done
+          [ "$fail" = 0 ] || { echo "::error::VirusTotal gate failed; investigate the reports before retrying."; exit 1; }
+          echo "VirusTotal gate passed."
+
+      - name: Release notes
+        run: |
+          set -eu
+          # The CHANGELOG section for this version (between its heading and the
+          # next "## [" heading), verified to exist by verify-source.
+          awk -v v="$SOURCE_VERSION" '
+            index($0, "## [" v "]") == 1 { on = 1; next }
+            on && /^## \[/ { exit }
+            on { print }
+          ' CHANGELOG.md > notes.md
+          {
+            echo
+            echo "## Download"
+            echo
+            echo "| Windows | File |"
+            echo "|---|---|"
+            echo "| 64-bit (most PCs) | [SpaceMonger-x64.exe](https://github.com/${{ github.repository }}/releases/download/${VERSION}/SpaceMonger-x64.exe) |"
+            echo "| ARM64 (Snapdragon, Surface Pro X) | [SpaceMonger-arm64.exe](https://github.com/${{ github.repository }}/releases/download/${VERSION}/SpaceMonger-arm64.exe) |"
+            echo "| 32-bit (legacy) | [SpaceMonger-x86.exe](https://github.com/${{ github.repository }}/releases/download/${VERSION}/SpaceMonger-x86.exe) |"
+            echo
+            echo "One standalone executable, no installer. Windows 10, Windows 11 and Windows Server 2016+."
+            echo
+            echo "## Verify"
+            echo
+            if [ "$SIGN_RESULT" = "success" ]; then
+              echo "**Code signing:** every executable is Authenticode-signed (SHA-256, RFC 3161 timestamp) with a Certum Open Source code signing certificate issued to *Open Source Developer Jens Roggenfelder*. SmartScreen may still warn while a new signature builds download reputation."
+              echo
+            fi
+            echo '```powershell'
+            echo '# Checksum (compare with SHA256SUMS)'
+            echo 'Get-FileHash .\SpaceMonger-x64.exe -Algorithm SHA256'
+            echo '# Authenticode signature'
+            echo 'Get-AuthenticodeSignature .\SpaceMonger-x64.exe | Format-List Status, SignerCertificate'
+            echo '# Build provenance (Sigstore, needs GitHub CLI)'
+            echo "gh attestation verify .\\SpaceMonger-x64.exe --repo ${{ github.repository }}"
+            echo '```'
+            if [ -n "${VT_API_KEY}" ]; then
+              echo
+              echo "**VirusTotal:**"
+              for f in SpaceMonger-x64.exe SpaceMonger-arm64.exe SpaceMonger-x86.exe; do
+                sha=$(awk -v n="$f" '$2==n{print $1}' dist/SHA256SUMS)
+                echo "[$f](https://www.virustotal.com/gui/file/$sha)"
+              done | paste -sd ' ' | sed 's/ / · /g'
+            fi
+            echo
+            echo "---"
+            echo "SpaceMonger is Copyright © 1998–2020 Sean Werkema (MIT). Modernized by Johnny J. Andersen ([Daduck/spacemonger](https://github.com/Daduck/spacemonger)); this fork is maintained by Jens Roggenfelder. See [THIRD-PARTY-NOTICES.md](https://github.com/${{ github.repository }}/blob/${VERSION:-master}/THIRD-PARTY-NOTICES.md)."
+          } >> notes.md
+          cat notes.md
+
       - name: Publish GitHub release
         if: inputs.version != ''
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
+          # RELEASE_PUBLISH_PAT (fine-grained, this repo, Contents R/W) avoids
+          # "Resource not accessible by integration" when master moved during
+          # the build; falls back to the built-in token.
+          token: ${{ secrets.RELEASE_PUBLISH_PAT || github.token }}
           tag_name: ${{ inputs.version }}
           target_commitish: ${{ github.sha }}
           name: SpaceMonger ${{ inputs.version }}
-          prerelease: ${{ inputs.prerelease }}
+          body_path: notes.md
           generate_release_notes: true
+          prerelease: ${{ inputs.prerelease }}
+          make_latest: ${{ inputs.prerelease && 'false' || 'true' }}
           fail_on_unmatched_files: true
           files: |
             dist/SpaceMonger-*.exe
             dist/SHA256SUMS
+
+      - name: Verify the published assets
+        # Re-download what users get and check it against SHA256SUMS, so a
+        # partial or swapped upload is caught here and not by a user.
+        if: inputs.version != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          mkdir check && cd check
+          gh release download "$VERSION" --repo "${{ github.repository }}"
+          sha256sum -c SHA256SUMS
+          ls -la
+
+  # winget: komac opens a pull request in microsoft/winget-pkgs from the
+  # maintainer's fork. Only after a real, non-pre-release publish; skips with a
+  # notice while WINGET_TOKEN is missing and never turns a release red. The very
+  # first version has to be submitted by hand (packaging/README.md).
+  package-managers:
+    needs: publish
+    if: |
+      !cancelled() && needs.publish.result == 'success' &&
+      inputs.version != '' && inputs.prerelease != true
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    env:
+      VERSION: ${{ inputs.version }}
+      HAS_WINGET_TOKEN: ${{ secrets.WINGET_TOKEN != '' }}
+    steps:
+      - name: Skip notice (winget)
+        if: env.HAS_WINGET_TOKEN != 'true'
+        run: echo "::notice::WINGET_TOKEN is not set, winget was not updated for ${VERSION} (see packaging/README.md)"
+
+      # komac is pinned to an exact release and checked against a recorded
+      # SHA256 instead of using an action that installs the latest komac.
+      - name: Update winget (komac)
+        if: env.HAS_WINGET_TOKEN == 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.WINGET_TOKEN }}
+          KOMAC_FORK_OWNER: JRpersonal
+          KOMAC_VERSION: "2.16.0"
+          KOMAC_SHA256: 7d2707fa6210f2789a3702de49fbd150b736dbf426ee0b9bc8e098736f9fd82d
+        run: |
+          set -eu
+          curl -sSfL -o komac.tar.gz "https://github.com/russellbanks/Komac/releases/download/v${KOMAC_VERSION}/komac-${KOMAC_VERSION}-x86_64-unknown-linux-gnu.tar.gz"
+          echo "${KOMAC_SHA256}  komac.tar.gz" | sha256sum -c -
+          tar -xzf komac.tar.gz
+          KOMAC=$(find . -maxdepth 2 -type f -name komac | head -1)
+          chmod +x "$KOMAC"
+          base="https://github.com/${{ github.repository }}/releases/download/${VERSION}"
+          "$KOMAC" update JRpersonal.SpaceMonger \
+            --version "${VERSION#v}" \
+            --release-notes-url "https://github.com/${{ github.repository }}/releases/tag/${VERSION}" \
+            --submit \
+            --urls "$base/SpaceMonger-x64.exe" "$base/SpaceMonger-arm64.exe" "$base/SpaceMonger-x86.exe"

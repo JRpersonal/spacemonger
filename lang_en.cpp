@@ -43,7 +43,7 @@ Lang LangUs = {
 		L" for this program's behavior.  There are no warranties of any"
 		L" kind, expressed or implied, on this product.",
 	L"An independently maintained continuation of the classic SpaceMonger.",
-	L"Current maintainer: Johnny J. Andersen (Anderki.dk)",
+	L"Maintainers: J. J. Andersen, Jens Roggenfelder",
 	L"&Project website",
 	L"&Report a bug",
 	L"SpaceMonger could not open this URL:\n%s",
@@ -93,7 +93,7 @@ Lang LangUk = {
 		L" for this program's behavior.  There are no warranties of any"
 		L" kind, expressed or implied, on this product.",
 	L"An independently maintained continuation of the classic SpaceMonger.",
-	L"Current maintainer: Johnny J. Andersen (Anderki.dk)",
+	L"Maintainers: J. J. Andersen, Jens Roggenfelder",
 	L"&Project website",
 	L"&Report a bug",
 	L"SpaceMonger could not open this URL:\n%s",
