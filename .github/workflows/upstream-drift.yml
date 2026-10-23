@@ -1,0 +1,67 @@
+name: upstream drift
+
+# This repo is a fork of Daduck/spacemonger. A fork falls silent by design:
+# nothing tells you when the project you forked fixes something. This keeps ONE
+# issue up to date with what is sitting in the gap, and rewrites it each Monday.
+on:
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Measure the gap and report it
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          OURS_REF: master
+          THEIRS: Daduck/spacemonger
+          THEIRS_REF: master
+        run: |
+          set -eu
+          ALERT='overflow|use-after-free|race|deadlock|crash|leak|null|security|cve|corrupt|hang|freeze|fix'
+          gh label create upstream-drift --repo "$REPO" --color ededed \
+            --description "The upstream fork has moved ahead of this repo" 2>/dev/null || true
+
+          git clone -q --filter=blob:none "https://github.com/$REPO" work
+          cd work
+          git remote add upstream "https://github.com/$THEIRS"
+          git fetch -q upstream "$THEIRS_REF"
+          behind=$(git rev-list --count "origin/$OURS_REF..upstream/$THEIRS_REF")
+          gap=$(git log --no-merges --format='%h %ad %s' --date=short "origin/$OURS_REF..upstream/$THEIRS_REF" || true)
+          hits=$(echo "$gap" | grep -Ei "$ALERT" || true)
+          cd ..
+
+          title="upstream $THEIRS has moved on"
+          {
+            echo "**$behind commits** in \`$THEIRS@$THEIRS_REF\` are not in this repo."
+            echo
+            if [ -n "$hits" ]; then
+              echo "### Worth reading first"
+              echo '```'; echo "$hits"; echo '```'
+            fi
+            echo "### Everything in the gap"
+            echo '```'; echo "${gap:-nothing}"; echo '```'
+            echo "_Measured $(date -u +%Y-%m-%d). Rewritten each Monday; a mirror, not a to-do list._"
+          } > body.md
+
+          existing=$(gh issue list --repo "$REPO" --state open --label upstream-drift \
+                       --search "$title in:title" --json number --jq '.[0].number // empty')
+          if [ "$behind" = "0" ]; then
+            if [ -n "$existing" ]; then
+              gh issue close "$existing" --repo "$REPO" --comment "Nothing left in the gap."
+            fi
+            exit 0
+          fi
+          if [ -n "$existing" ]; then
+            gh issue edit "$existing" --repo "$REPO" --body-file body.md
+          else
+            gh issue create --repo "$REPO" --title "$title" --label upstream-drift --body-file body.md
+          fi

@@ -236,7 +236,7 @@ void CFolderTree::GetSpace(const CString &path)
 	}
 	if (hLibrary != NULL) FreeLibrary(hLibrary);
 
-	usedspace = totalspace - freespace;
+	usedspace = totalspace > freespace ? totalspace - freespace : 0;
 }
 
 CFolder *CFolderTree::GetRoot(void)

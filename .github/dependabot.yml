@@ -1,8 +1,20 @@
 version: 2
 updates:
+  # Keep GitHub Actions themselves up to date (all actions are SHA-pinned).
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
-      interval: "daily"
-    cooldown:
-      default-days: 3
+      interval: "weekly"
+      day: "monday"
+      time: "08:00"
+      timezone: "Europe/Berlin"
+    labels:
+      - "dependencies"
+      - "actions"
+    commit-message:
+      prefix: "ci"
+    groups:
+      # init/analyze must move in lockstep or CodeQL fails with a version mismatch.
+      codeql-action:
+        patterns:
+          - "github/codeql-action*"

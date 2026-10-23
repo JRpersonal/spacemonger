@@ -51,7 +51,7 @@ void CAboutDialog::OpenUrl(LPCWSTR url, LPCSTR urlText)
 	HINSTANCE result = ShellExecuteW(m_hWnd, L"open", url, NULL, NULL, SW_SHOWNORMAL);
 	if ((INT_PTR)result <= 32) {
 		CString message;
-		message.Format(CurLang->open_url_failed_format, urlText);
+		message.Format(CurLang->open_url_failed_format, (LPCWSTR)CString(urlText));
 		MessageBox(message, CurLang->about_spacemonger, MB_OK | MB_ICONERROR);
 	}
 }

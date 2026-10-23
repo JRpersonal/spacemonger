@@ -65,7 +65,9 @@ public:
 	// Must be called from the thread that owns the engine (the one that called
 	// StartScan); it touches the worker-thread handles to break blocking I/O.
 	void Cancel();
-	// Tells idle workers to exit once all tasks are done; does not block.
+	// Tells workers to exit; does not block. Workers exit even if tasks are still
+	// queued, so call it only once the scan has drained (WaitForCompletion would
+	// otherwise wait for tasks nobody runs).
 	void RequestStop();
 	void WaitForCompletion();
 	ScanProgress GetProgress() const;
