@@ -1,5 +1,5 @@
 
-SpaceMonger Version 1.4.4
+SpaceMonger Version 1.4.5
 -------------------------
 
 
@@ -19,7 +19,7 @@ The latest version of SpaceMonger is always available at:
 SYSTEM REQUIREMENTS
 -------------------
 
-SpaceMonger 1.4.4 is optimized for modern Windows environments. It is intended
+SpaceMonger 1.4.5 is optimized for modern Windows environments. It is intended
 to run on Windows 10, Windows 11, and modern Windows Server editions.
 Because it is a native C++ MFC application, it has virtually zero dependencies
 and remains incredibly lightweight. Any PC capable of running Windows today
@@ -116,6 +116,14 @@ users of the program to give away copies to their friends.
 
 WHAT'S NEW
 ----------
+
+Between 1.4.4 and 1.4.5 (Signed Releases)
+   * Executables are now code signed (Certum Open Source certificate) and
+     published with SHA-256 checksums and build provenance.
+   * Fixed an info-tip icon handle leak and hardened the tip window,
+     the settings dialog, and scan cancellation.
+   * The About dialog and file properties point to the current project
+     for downloads and bug reports.
 
 Between 1.4.3 and 1.4.4 (Partial Scan Diagnostics)
    * Partial scans now show a compact, clickable notice in the top bar
