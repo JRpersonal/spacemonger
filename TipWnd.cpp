@@ -611,7 +611,7 @@ static LRESULT CALLBACK TipWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM l
 			// If the window the mouse is over is a TipWnd, then the mouse is
 			// really just over that TipWnd's owner.
 			wchar_t cname[32];
-			cname[0] = L' ';
+			cname[0] = 0;
 			if (wnd != NULL) ::GetClassNameW(wnd, cname, _countof(cname));
 			if (!wcscmp(cname, CLASSNAME))
 				wnd = (HWND)::SendMessage(wnd, WM_COMMAND, TW_GET_OWNER, 0);
