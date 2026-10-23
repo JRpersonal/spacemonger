@@ -45,7 +45,7 @@ void CDriveDialog::OnDriveDblClk(NMHDR *pNotifyStruct, LRESULT *result)
 void CDriveDialog::OnOK()
 {
 	CListCtrl *lc = (CListCtrl *)GetDlgItem(IDC_DRIVE_LIST);
-	if (lc == NULL) EndDialog(-1);
+	if (lc == NULL) { EndDialog(-1); return; }
 	if (lc->GetSelectedCount() != 1) return;
 
 	int i, max = lc->GetItemCount();

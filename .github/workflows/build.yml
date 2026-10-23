@@ -1,38 +1,63 @@
-name: Build and Test
+name: build
 
+# CI for pull requests and pushes to the default branch. Releases are owned by
+# release.yml, which repeats the same build and adds attestation and publication.
 on:
   push:
-    branches: [ "main", "master" ]
+    branches: [master, main]
   pull_request:
-    branches: [ "main", "master" ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  # Only a superseded PR push is cancelled, so back-to-back merges do not leave
+  # a red X for a run nobody meant to abandon.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   build:
+    name: ${{ matrix.preset }} ${{ matrix.configuration }}
     runs-on: windows-2022
-
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
         preset: [vs2022-win32, vs2022-x64, vs2022-arm64]
         configuration: [Debug, Release]
-
+    env:
+      BUILD_PRESET: ${{ matrix.preset }}-${{ matrix.configuration == 'Debug' && 'debug' || 'release' }}
     steps:
-    - uses: actions/checkout@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
-    - name: Configure CMake
-      run: cmake --preset ${{ matrix.preset }}
+      - name: Configure
+        run: cmake --preset ${{ matrix.preset }}
 
-    - name: Build
-      run: cmake --build --preset ${{ matrix.preset }}-${{ matrix.configuration == 'Debug' && 'debug' || 'release' }}
+      - name: Build
+        run: cmake --build --preset $env:BUILD_PRESET
 
-    - name: Test (x86 / x64)
-      if: matrix.preset != 'vs2022-arm64'
-      run: ctest --preset ${{ matrix.preset }}-${{ matrix.configuration == 'Debug' && 'debug' || 'release' }}
+      # ARM64 binaries cannot run on the x64 hosted runner; they are build-only.
+      # --timeout: a hung test must not hold the job for the 25 min CTest default.
+      - name: Test
+        if: matrix.preset != 'vs2022-arm64'
+        run: ctest --preset $env:BUILD_PRESET --timeout 120 --output-on-failure
 
-    - name: Upload release executable
-      if: matrix.configuration == 'Release'
-      uses: actions/upload-artifact@v5
-      with:
-        name: SpaceMonger-${{ matrix.preset }}
-        path: build/${{ matrix.preset }}/Release/SpaceMonger.exe
-        if-no-files-found: error
+      - name: Upload test logs on failure
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ctest-log-${{ matrix.preset }}-${{ matrix.configuration }}
+          path: build/${{ matrix.preset }}/Testing/Temporary/
+          if-no-files-found: ignore
+
+      - name: Upload release executable
+        if: matrix.configuration == 'Release'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: SpaceMonger-${{ matrix.preset }}
+          path: build/${{ matrix.preset }}/Release/SpaceMonger.exe
+          if-no-files-found: error

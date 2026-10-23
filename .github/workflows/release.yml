@@ -1,0 +1,139 @@
+name: release
+
+# Cut a release with:  gh workflow run release.yml -f version=vX.Y.Z
+# Leave `version` empty for a build-only dry-run (also runs weekly, so a
+# Dependabot bump of a release-only action is caught before the next real tag).
+#
+# Produces, for Win32 / x64 / ARM64:
+#   SpaceMonger-<arch>.exe
+#   SHA256SUMS
+# Every artifact is attested via Sigstore (actions/attest-build-provenance).
+# No file name carries the version, so each has a permanent
+#   releases/latest/download/<name>
+# URL. The publish step creates the tag itself; there is deliberately NO
+# tag-push trigger (a second run on the freshly created tag would repeat the
+# pipeline without the `version` input).
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (vX.Y.Z). Leave empty for a build-only dry-run.'
+        required: false
+        type: string
+      prerelease:
+        description: 'Publish as a pre-release (excluded from "latest").'
+        required: false
+        default: false
+        type: boolean
+  schedule:
+    - cron: "30 4 * * 0"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # Anything that should fail a release fails here, before the multi-arch build.
+  verify-source:
+    runs-on: windows-2022
+    timeout-minutes: 30
+    steps:
+      - name: Validate version input
+        if: inputs.version != ''
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          if ($env:VERSION -notmatch '^v\d+\.\d+\.\d+(-[0-9A-Za-z.]+)?$') {
+            Write-Error "version must look like vX.Y.Z (got '$env:VERSION')"
+            exit 1
+          }
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Configure
+        run: cmake --preset vs2022-x64
+
+      - name: Build
+        run: cmake --build --preset vs2022-x64-release
+
+      - name: Test
+        run: ctest --preset vs2022-x64-release --timeout 120 --output-on-failure
+
+  build:
+    needs: verify-source
+    runs-on: windows-2022
+    timeout-minutes: 25
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - { preset: vs2022-win32, arch: Win32 }
+          - { preset: vs2022-x64,   arch: x64 }
+          - { preset: vs2022-arm64, arch: ARM64 }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Configure
+        run: cmake --preset ${{ matrix.preset }}
+
+      - name: Build
+        run: cmake --build --preset ${{ matrix.preset }}-release
+
+      - name: Stage executable
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Copy-Item build/${{ matrix.preset }}/Release/SpaceMonger.exe dist/SpaceMonger-${{ matrix.arch }}.exe
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-${{ matrix.arch }}
+          path: dist/SpaceMonger-${{ matrix.arch }}.exe
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write        # create the tag and release
+      id-token: write        # Sigstore attestation
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: release-*
+          path: dist
+          merge-multiple: true
+
+      - name: Checksums
+        working-directory: dist
+        run: sha256sum SpaceMonger-*.exe | tee SHA256SUMS
+
+      - name: Sigstore attestation
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            dist/SpaceMonger-*.exe
+            dist/SHA256SUMS
+
+      # Gated on a non-empty version, so scheduled and dry runs stop here.
+      - name: Publish GitHub release
+        if: inputs.version != ''
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+        with:
+          tag_name: ${{ inputs.version }}
+          target_commitish: ${{ github.sha }}
+          name: SpaceMonger ${{ inputs.version }}
+          prerelease: ${{ inputs.prerelease }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            dist/SpaceMonger-*.exe
+            dist/SHA256SUMS

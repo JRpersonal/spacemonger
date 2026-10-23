@@ -1,0 +1,47 @@
+name: CodeQL
+
+# Static security analysis for the C++ sources. Runs on every PR and push to the
+# default branch, plus weekly so newly published query patterns hit existing code.
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+  schedule:
+    - cron: "30 6 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  analyze:
+    name: Analyze (c-cpp)
+    runs-on: windows-2022
+    timeout-minutes: 40
+    permissions:
+      contents: read
+      security-events: write   # upload CodeQL results
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
+        with:
+          languages: c-cpp
+          build-mode: manual
+
+      - name: Build (x64 Release)
+        run: |
+          cmake --preset vs2022-x64
+          cmake --build --preset vs2022-x64-release
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
+        with:
+          category: "/language:c-cpp"
