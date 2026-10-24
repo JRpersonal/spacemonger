@@ -1038,6 +1038,13 @@ static COLORREF MuteColor(COLORREF c)
 		(GetBValue(c) * keep + base * (100 - keep)) / 100);
 }
 
+// A placeholder block whose largest entry is a folder (too small to draw).
+static bool SampleIsFolder(const TreemapNode *cur)
+{
+	return cur->index == (ui32)-1 && cur->sample != (ui32)-1 && cur->source != NULL
+		&& cur->source->children[cur->sample] != NULL;
+}
+
 void CFolderView::MinimalDrawDisplayFolder(CDC *pDC, const TreemapNode *cur, BOOL sel)
 {
 	int x, y, w, h;
@@ -1073,10 +1080,12 @@ void CFolderView::MinimalDrawDisplayFolder(CDC *pDC, const TreemapNode *cur, BOO
 				bright = GetSysColor(COLOR_3DHILIGHT);
 				dark = GetSysColor(COLOR_3DSHADOW);
 			}
-			else if (scheme == 3 && !(cur->flags & 1)) {
-				// By file type: files coloured by what they are.
-				const wchar_t *name = (cur->source != NULL && cur->index != (ui32)-1)
-					? cur->source->names[cur->index] : cur->name;
+			else if (scheme == 3 && !(cur->flags & 1) && !SampleIsFolder(cur)) {
+				// By file type: files coloured by what they are; a block of
+				// files too small to draw takes the type of its largest one.
+				const ui32 entry = cur->index != (ui32)-1 ? cur->index : cur->sample;
+				const wchar_t *name = (cur->source != NULL && entry != (ui32)-1)
+					? cur->source->names[entry] : cur->name;
 				SM_FileTypeColors(SM_ClassifyFileType(name), color, bright, dark);
 			}
 			else if (scheme == 3) {

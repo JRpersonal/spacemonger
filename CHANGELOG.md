@@ -7,6 +7,13 @@ every release needs a `## [X.Y.Z]` section here first.
 
 ## [Unreleased]
 
+### Fixed
+- *By file type*: blocks of files too small to draw one by one were grey
+  (*Other*); they now take the colour of their largest file.
+
+### Changed
+- README: what this fork is for, screenshots, rollout notes.
+
 ## [1.4.6] - 2026-10-24
 
 ### Added

@@ -193,7 +193,10 @@ static void SizeFolders(
 		} else if (!HideLooseEntries(folder, config)) {
 			// Sub-threshold region: emit a depth-colored placeholder block so
 			// dense folders keep the classic "filled" texture.
+			// Both lists are in descending order, so the first entry is the
+			// largest; it gives the block its colour when coloured by file type.
 			AddNode(outNodes, config, folder, (ui32)-1, depth, (si16)x1, (si16)y1, (si16)w1, (si16)h1, TREEMAP_FLAG_NONE);
+			outNodes.back().sample = index[0];
 		}
 	}
 
@@ -214,6 +217,7 @@ static void SizeFolders(
 			}
 		} else if (!HideLooseEntries(folder, config)) {
 			AddNode(outNodes, config, folder, (ui32)-1, depth, (si16)x2, (si16)y2, (si16)w2, (si16)h2, TREEMAP_FLAG_NONE);
+			outNodes.back().sample = index[numlist1];
 		}
 	}
 }
