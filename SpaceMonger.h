@@ -90,6 +90,9 @@ public:
 	// Scans a drive, folder or share (\\PC01\c$) and shows it.
 	void ScanPath(const CString &path);
 
+	// Shows m_settings in the map and the window chrome (no registry write).
+	void ApplySettings(void);
+
 	// /report mode: no window, no message boxes; the exit code tells the
 	// result (see RunHeadlessReport in SpaceMonger.cpp).
 	bool m_headless;

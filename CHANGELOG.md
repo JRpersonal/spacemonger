@@ -14,6 +14,8 @@ every release needs a `## [X.Y.Z]` section here first.
   the scanned folder (`C:\FileServerUsers\`).
 
 ### Changed
+- Settings take effect as soon as they are chosen, not only after *OK*;
+  *Cancel* puts everything back.
 - Toolbar icons in dark mode are drawn with stronger strokes; disabled ones
   are lighter, so both are easy to tell apart from the background.
 - The search field is larger and stands out: a rounded field with a

@@ -14,6 +14,12 @@ IMPLEMENT_DYNCREATE(CSettingsDialog, CDialog)
 BEGIN_MESSAGE_MAP(CSettingsDialog, CDialog)
 	//{{AFX_MSG_MAP(CSettingsDialog)
 	ON_CBN_SELENDOK(IDC_LANG, OnLang)
+	ON_CBN_SELENDOK(IDC_DENSITY, OnChange)
+	ON_CBN_SELENDOK(IDC_FILE_COLOR, OnChange)
+	ON_CBN_SELENDOK(IDC_THEME, OnChange)
+	ON_BN_CLICKED(IDC_SHOW_INFO_TIPS, OnChange)
+	ON_BN_CLICKED(IDC_SHOW_ROLLOVER_BOX, OnChange)
+	ON_BN_CLICKED(IDC_DISABLE_DELETE, OnChange)
 	//}}AFX_MSG_MAP
 END_MESSAGE_MAP()
 
@@ -43,12 +49,26 @@ CSettingsDialog::~CSettingsDialog()
 
 void CSettingsDialog::OnCancel(void)
 {
-	memcpy(theApp.m_settings.lang, oldlang, sizeof(oldlang));
+	theApp.m_settings = oldsettings;
 	CurLang = oldlangptr;
+	theApp.ApplySettings();
 	CDialog::OnCancel();
 }
 
 void CSettingsDialog::OnOK(void)
+{
+	ReadControls();
+	CDialog::OnOK();
+}
+
+// Every change shows in the main window right away.
+void CSettingsDialog::OnChange(void)
+{
+	ReadControls();
+	theApp.ApplySettings();
+}
+
+void CSettingsDialog::ReadControls(void)
 {
 	CComboBox *density = (CComboBox *)GetDlgItem(IDC_DENSITY);
 	if (density != NULL && density->GetCurSel() >= 0 && density->GetCurSel() < kDetailLevels)
@@ -64,8 +84,6 @@ void CSettingsDialog::OnOK(void)
 	theApp.m_settings.show_name_tips = theApp.m_settings.show_info_tips;
 	theApp.m_settings.rollover_box = IsDlgButtonChecked(IDC_SHOW_ROLLOVER_BOX);
 	theApp.m_settings.disable_delete = IsDlgButtonChecked(IDC_DISABLE_DELETE);
-
-	CDialog::OnOK();
 }
 
 void CSettingsDialog::OnLang(void)
@@ -83,6 +101,7 @@ void CSettingsDialog::OnLang(void)
 	theApp.m_settings.lang[3] = '\0';
 	CurLang = SM_ResolveLanguage(theApp.m_settings.lang);
 	UpdateDialogForNewLanguage();
+	theApp.ApplySettings();
 }
 
 void CSettingsDialog::UpdateDialogForNewLanguage(void)
@@ -140,7 +159,7 @@ void CSettingsDialog::UpdateDialogForNewLanguage(void)
 
 BOOL CSettingsDialog::OnInitDialog()
 {
-	memcpy(oldlang, theApp.m_settings.lang, sizeof(oldlang));
+	oldsettings = theApp.m_settings;
 	oldlangptr = CurLang;
 
 	CDialog::OnInitDialog();
