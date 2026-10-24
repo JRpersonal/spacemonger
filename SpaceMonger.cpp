@@ -13,6 +13,8 @@
 #include "CommandPolicy.h"
 #include "PathUtil.h"
 #include "SpaceReport.h"
+#include "HtmlReport.h"
+#include "ReportLink.h"
 #include "Theme.h"
 #include <shobjidl.h>
 #include <shlobj.h>
@@ -61,15 +63,23 @@ CSpaceMonger::CSpaceMonger()
 namespace {
 
 // Command line:
-//   SpaceMonger.exe [path] [/report <file or folder>] [/top N] [/hide-system]
+//   SpaceMonger.exe [path] [/report <file or folder>] [/html <file or folder>]
+//                   [/top N] [/hide-system]
+//   SpaceMonger.exe /register | /unregister | /link <spacemonger: link>
 // A path alone scans it in the window (drive, folder or \\PC01\c$). With
-// /report nothing is shown: the scan is written as CSV and the program ends,
-// for rollouts and admin scripts. A report folder gets <COMPUTER>_<date>.csv.
+// /report or /html nothing is shown: the scan is written as CSV or as an HTML
+// page and the program ends, for rollouts and admin scripts. A report folder
+// gets <COMPUTER>_<date>.csv or .html. /register sets up the spacemonger:
+// links the HTML page uses for "Show in Explorer" (ReportLink.h).
 struct StartOptions {
 	CString path;
 	CString report;
+	CString html;
+	CString link;
 	int top = 25;
 	bool hideSystem = false;
+	bool registerLinks = false;
+	bool unregisterLinks = false;
 	bool invalid = false;
 };
 
@@ -109,6 +119,17 @@ StartOptions ParseStartOptions()
 			if (takeValue()) options.report = CleanPathArgument(value);
 			else options.invalid = true;
 		}
+		else if (name == L"html") {
+			if (takeValue()) options.html = CleanPathArgument(value);
+			else options.invalid = true;
+		}
+		else if (name == L"link") {
+			// The whole URL, untouched: CleanPathArgument would mangle it.
+			if (takeValue()) options.link = value;
+			else options.invalid = true;
+		}
+		else if (name == L"register") options.registerLinks = true;
+		else if (name == L"unregister") options.unregisterLinks = true;
 		else if (name == L"top") {
 			options.top = takeValue() ? _wtoi(value) : 0;
 			if (options.top <= 0) options.invalid = true;
@@ -122,14 +143,22 @@ StartOptions ParseStartOptions()
 }
 
 const wchar_t kUsage[] =
-	L"SpaceMonger.exe [path] [/report <file or folder>] [/top N] [/hide-system]\r\n\r\n"
+	L"SpaceMonger.exe [path] [/report <file or folder>] [/html <file or folder>]\r\n"
+	L"                [/top N] [/hide-system]\r\n"
+	L"SpaceMonger.exe /register | /unregister\r\n\r\n"
 	L"  path           Drive, folder or share to scan, e.g. D:\\ or \\\\PC01\\c$\r\n"
-	L"                 (default with /report: the Windows drive)\r\n"
+	L"                 (default with /report or /html: the Windows drive)\r\n"
 	L"  /report        Scan without a window, write a CSV report and exit.\r\n"
 	L"                 A folder gets <COMPUTER>_<yyyy-mm-dd>.csv.\r\n"
-	L"  /top N         Folders and files to list (default 25)\r\n"
-	L"  /hide-system   Leave out Windows, Program Files and other system content\r\n\r\n"
-	L"Exit codes: 0 report written, 1 invalid arguments, 2 scan failed, 3 report not written.\r\n";
+	L"  /html          Scan without a window, write the map as an HTML page\r\n"
+	L"                 and exit. A folder gets <COMPUTER>_<yyyy-mm-dd>.html.\r\n"
+	L"  /top N         Folders and files to list in the CSV (default 25)\r\n"
+	L"  /hide-system   Leave out Windows, Program Files and other system content\r\n"
+	L"  /register      Let the HTML page's \"Show in Explorer\" open Explorer\r\n"
+	L"                 (spacemonger: links, current user only); /unregister\r\n"
+	L"                 removes it again.\r\n\r\n"
+	L"Exit codes: 0 done, 1 invalid arguments, 2 scan failed, 3 report not written,\r\n"
+	L"4 link refused or registration failed.\r\n";
 
 // Messages for the console a script started us from; a scheduled task has
 // none, then they go nowhere and the exit code is all there is.
@@ -164,6 +193,42 @@ SM_ReportVolume MakeReportVolume(const CFolderTree &tree)
 	return volume;
 }
 
+// res/report.html, built into the program as a resource.
+std::wstring LoadHtmlTemplate()
+{
+	HRSRC info = ::FindResourceW(NULL, L"REPORT_HTML", RT_RCDATA);
+	HGLOBAL data = info != NULL ? ::LoadResource(NULL, info) : NULL;
+	const char *bytes = data != NULL ? (const char *)::LockResource(data) : NULL;
+	int size = info != NULL ? (int)::SizeofResource(NULL, info) : 0;
+	if (bytes == NULL || size <= 0) return std::wstring();
+	int n = ::MultiByteToWideChar(CP_UTF8, 0, bytes, size, NULL, 0);
+	std::wstring text((size_t)n, L'\0');
+	::MultiByteToWideChar(CP_UTF8, 0, bytes, size, &text[0], n);
+	return text;
+}
+
+// The HTML page in the program's language.
+std::wstring BuildHtmlPage(CFolderTree &tree, bool hideSystem)
+{
+	SM_ReportVolume volume = MakeReportVolume(tree);
+	SM_ReportOptions options;
+	options.hideSystem = hideSystem;
+	const wchar_t *lang = CurLang == &LangDe ? L"de" : CurLang == &LangFr ? L"fr" : L"en";
+	return SM_BuildHtmlReport(LoadHtmlTemplate(), SM_BuildReportJson(tree.GetRoot(), volume, options, lang));
+}
+
+bool WriteReport(const std::wstring &file, const std::wstring &text)
+{
+	if (!text.empty() && SM_WriteUtf8File(file, text)) {
+		ConsoleLine(CString(L"SpaceMonger: report written to ") + file.c_str());
+		return true;
+	}
+	CString message;
+	message.Format(L"SpaceMonger: could not write %s (Windows error %lu).", file.c_str(), ::GetLastError());
+	ConsoleLine(message);
+	return false;
+}
+
 int RunHeadlessReport(const StartOptions &options)
 {
 	CString path = options.path;
@@ -180,20 +245,50 @@ int RunHeadlessReport(const StartOptions &options)
 		return 2;
 	}
 	SM_ReportVolume volume = MakeReportVolume(tree);
-	SM_ReportOptions reportOptions;
-	SM_ReportLocaleSeparators(reportOptions);
-	reportOptions.top = options.top;
-	reportOptions.hideSystem = options.hideSystem;
-	std::wstring text = SM_BuildSpaceReport(tree.GetRoot(), volume, reportOptions);
-	std::wstring file = SM_ResolveReportPath((LPCWSTR)options.report, volume.computer);
-	if (!SM_WriteUtf8File(file, text)) {
-		CString message;
-		message.Format(L"SpaceMonger: could not write %s (Windows error %lu).", file.c_str(), ::GetLastError());
-		ConsoleLine(message);
-		return 3;
+	bool written = true;
+	if (!options.report.IsEmpty()) {
+		SM_ReportOptions reportOptions;
+		SM_ReportLocaleSeparators(reportOptions);
+		reportOptions.top = options.top;
+		reportOptions.hideSystem = options.hideSystem;
+		written = WriteReport(SM_ResolveReportPath((LPCWSTR)options.report, volume.computer),
+			SM_BuildSpaceReport(tree.GetRoot(), volume, reportOptions)) && written;
 	}
-	ConsoleLine(CString(L"SpaceMonger: report written to ") + file.c_str());
-	return 0;
+	if (!options.html.IsEmpty()) {
+		written = WriteReport(SM_ResolveReportPath((LPCWSTR)options.html, volume.computer, L".html"),
+			BuildHtmlPage(tree, options.hideSystem)) && written;
+	}
+	return written ? 0 : 3;
+}
+
+// Selects a file or folder in Explorer.
+bool ShowInExplorer(const std::wstring &path)
+{
+	std::wstring target = path;
+	if (target.size() > 3 && target.back() == L'\\') target.pop_back();
+	if (::GetFileAttributesW(target.c_str()) == INVALID_FILE_ATTRIBUTES) return false;
+	HRESULT init = ::CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
+	PIDLIST_ABSOLUTE item = NULL;
+	bool ok = SUCCEEDED(::SHParseDisplayName(target.c_str(), NULL, &item, 0, NULL))
+		&& SUCCEEDED(::SHOpenFolderAndSelectItems(item, 0, NULL, 0));
+	::CoTaskMemFree(item);
+	if (SUCCEEDED(init)) ::CoUninitialize();
+	return ok;
+}
+
+// /register, /unregister and spacemonger:show links; 0 or 4.
+int RunLinkCommand(const StartOptions &options)
+{
+	if (options.registerLinks || options.unregisterLinks) {
+		wchar_t exe[MAX_PATH];
+		bool ok = options.unregisterLinks ? SM_UnregisterReportLinks()
+			: ::GetModuleFileNameW(NULL, exe, MAX_PATH) != 0 && SM_RegisterReportLinks(exe);
+		ConsoleLine(ok ? L"SpaceMonger: done." : L"SpaceMonger: the registry could not be changed.");
+		return ok ? 0 : 4;
+	}
+	std::wstring path;
+	if (SM_ParseReportLink((LPCWSTR)options.link, path) != SM_LINK_SHOW) return 4;
+	return ShowInExplorer(path) ? 0 : 4;
 }
 
 }
@@ -220,13 +315,25 @@ BOOL CSpaceMonger::InitInstance()
 	m_settings.Load();
 
 	StartOptions start = ParseStartOptions();
-	if (start.invalid || !start.report.IsEmpty()) {
+	// spacemonger:scan?C:\... opens the window on that folder; anything else
+	// a link asks for is handled without a window.
+	if (!start.link.IsEmpty() && !start.invalid) {
+		std::wstring path;
+		if (SM_ParseReportLink((LPCWSTR)start.link, path) == SM_LINK_SCAN) {
+			start.path = path.c_str();
+			start.link.Empty();
+		}
+	}
+	if (start.invalid || !start.report.IsEmpty() || !start.html.IsEmpty() || !start.link.IsEmpty()
+		|| start.registerLinks || start.unregisterLinks) {
 		// Headless: returning FALSE ends the program with ExitInstance's code.
 		m_headless = true;
 		if (start.invalid) {
 			ConsoleLine(kUsage);
 			m_exitCode = 1;
 		}
+		else if (!start.link.IsEmpty() || start.registerLinks || start.unregisterLinks)
+			m_exitCode = RunLinkCommand(start);
 		else m_exitCode = RunHeadlessReport(start);
 		return FALSE;
 	}
@@ -333,8 +440,8 @@ void CSpaceMonger::ScanPath(const CString &path)
 	OnFileRefresh();
 }
 
-// Exports the biggest folders and files of the scan as CSV (Excel), the same
-// report the headless /report mode writes.
+// Exports the scan as an HTML page with the map, or the biggest folders and
+// files as CSV (Excel): the reports the headless /html and /report modes write.
 void CSpaceMonger::OnExport(void)
 {
 	CFolderTree *ft = (CFolderTree *)m_document;
@@ -345,23 +452,35 @@ void CSpaceMonger::OnExport(void)
 	CString folder;
 	if (SUCCEEDED(::SHGetKnownFolderPath(FOLDERID_Documents, 0, NULL, &documents))) folder = documents;
 	::CoTaskMemFree(documents);
-	std::wstring suggested = SM_ResolveReportPath(folder.IsEmpty() ? L".\\" : (LPCWSTR)(folder + L"\\"), volume.computer);
+	std::wstring suggested = SM_ResolveReportPath(folder.IsEmpty() ? L".\\" : (LPCWSTR)(folder + L"\\"),
+		volume.computer, L".html");
 	CString name = ::PathFindFileNameW(suggested.c_str());
 
-	CFileDialog dialog(FALSE, L"csv", name, OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST | OFN_HIDEREADONLY,
-		L"CSV (*.csv)|*.csv||", m_mainframe);
+	CFileDialog dialog(FALSE, L"html", name, OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST | OFN_HIDEREADONLY,
+		L"HTML (*.html)|*.html|CSV (*.csv)|*.csv||", m_mainframe);
 	if (!folder.IsEmpty()) dialog.m_ofn.lpstrInitialDir = folder;
 	if (dialog.DoModal() != IDOK) return;
 
-	SM_ReportOptions options;
-	SM_ReportLocaleSeparators(options);
-	options.top = 100;
-	options.hideSystem = m_settings.hide_system != 0;
 	CString file = dialog.GetPathName();
-	if (!SM_WriteUtf8File((LPCWSTR)file, SM_BuildSpaceReport(ft->GetRoot(), volume, options))) {
+	const bool html = dialog.m_ofn.nFilterIndex != 2 && file.Right(4).CompareNoCase(L".csv") != 0;
+	std::wstring text;
+	if (html) text = BuildHtmlPage(*ft, m_settings.hide_system != 0);
+	else {
+		SM_ReportOptions options;
+		SM_ReportLocaleSeparators(options);
+		options.top = 100;
+		options.hideSystem = m_settings.hide_system != 0;
+		text = SM_BuildSpaceReport(ft->GetRoot(), volume, options);
+	}
+	if (text.empty() || !SM_WriteUtf8File((LPCWSTR)file, text)) {
 		CString message;
 		message.Format(L"%s\n\nWindows error %lu", (LPCWSTR)file, ::GetLastError());
 		m_mainframe->MessageBox(message, L"SpaceMonger", MB_ICONWARNING | MB_OK);
+		return;
+	}
+	if (html) {
+		// The page is what the user wants to see next.
+		::ShellExecuteW(m_mainframe->GetSafeHwnd(), L"open", file, NULL, NULL, SW_SHOWNORMAL);
 		return;
 	}
 	CString done;

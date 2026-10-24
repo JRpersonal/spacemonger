@@ -7,6 +7,15 @@ every release needs a `## [X.Y.Z]` section here first.
 
 ## [Unreleased]
 
+### Added
+- HTML report: `/html <file or folder>` (and *Export list*, `Ctrl+E`) writes
+  one self-contained page with the map as in the window, hover details, zoom
+  by double-click and the biggest folders and files. No network needed; a
+  whole drive is a few hundred KB, so it fits into OneDrive or a mail.
+- *Show in Explorer* from the HTML page through `spacemonger:` links,
+  set up per user with `/register` (`/unregister` removes them). Only plain
+  local paths are accepted; a link never deletes or changes anything.
+
 ### Fixed
 - *By file type*: blocks of files too small to draw one by one were grey
   (*Other*); they now take the colour of their largest file.

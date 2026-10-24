@@ -224,7 +224,8 @@ std::wstring SM_ReportComputerForPath(const std::wstring &path)
 	return L"";
 }
 
-std::wstring SM_ResolveReportPath(const std::wstring &target, const std::wstring &computer)
+std::wstring SM_ResolveReportPath(const std::wstring &target, const std::wstring &computer,
+	const wchar_t *extension)
 {
 	std::wstring path = target;
 	wchar_t expanded[32768];
@@ -244,7 +245,7 @@ std::wstring SM_ResolveReportPath(const std::wstring &target, const std::wstring
 	std::wstring name = computer.empty() ? L"SpaceMonger" : computer;
 	for (wchar_t &c : name)
 		if (wcschr(L"\\/:*?\"<>|$", c) != nullptr) c = L'_';
-	return path + name + L"_" + date + L".csv";
+	return path + name + L"_" + date + extension;
 }
 
 bool SM_WriteUtf8File(const std::wstring &path, const std::wstring &text)

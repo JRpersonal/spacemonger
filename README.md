@@ -164,7 +164,8 @@ The original treemap, its colours and its speed stay as they were.
 ## Command line
 
 ```text
-SpaceMonger.exe [path] [/report <file or folder>] [/top N] [/hide-system]
+SpaceMonger.exe [path] [/report <file or folder>] [/html <file or folder>] [/top N] [/hide-system]
+SpaceMonger.exe /register | /unregister
 ```
 
 | Example | |
@@ -173,9 +174,12 @@ SpaceMonger.exe [path] [/report <file or folder>] [/top N] [/hide-system]
 | `SpaceMonger.exe \\PC01\c$` | an admin scans a remote PC over its admin share |
 | `SpaceMonger.exe /report \\srv\reports\` | no window: scans the Windows drive, writes `\\srv\reports\<COMPUTER>_<yyyy-mm-dd>.csv` and exits |
 | `SpaceMonger.exe \\PC01\c$ /report pc01.csv /top 50 /hide-system` | remote report with the 50 biggest folders and files, without system content |
+| `SpaceMonger.exe /html "%OneDrive%\Disk report\"` | no window: writes the map of the Windows drive as an HTML page into the user's OneDrive |
+| `SpaceMonger.exe /register` | lets *Show in Explorer* in the HTML page open Explorer (current user only); `/unregister` removes it |
 
-Exit codes: `0` written, `1` invalid arguments (`/?` prints the usage to the
-calling console), `2` scan failed, `3` report not written.
+Exit codes: `0` done, `1` invalid arguments (`/?` prints the usage to the
+calling console), `2` scan failed, `3` report not written, `4` link refused
+or registration failed.
 
 The report starts with drive size, used, free and *not readable* space, then
 lists the largest folders and files. It is UTF-8 with the list separator of
@@ -192,6 +196,21 @@ the user's locale, so Excel opens it in columns. An excerpt (`/top 8`):
 
 The full file also has the size in bytes and the scan date.
 
+### HTML report
+
+`/html` (or *Export list* in the window, `Ctrl+E`) writes one self-contained
+page with the same map as the window: hover for details, double-click a
+folder to zoom in, the biggest folders and files below. It needs no network,
+sends nothing anywhere and opens in any browser, so it can be put into the
+user's OneDrive or sent by mail. A whole drive is a few hundred KB.
+
+![HTML report: the map in the browser, zoomed into Users, with details of the selected file](docs/images/html-report.png)
+
+*Show in Explorer* uses `spacemonger:` links, which work once
+`SpaceMonger.exe /register` has run for the user. Since any web page can open
+such a link, SpaceMonger accepts only plain local paths (`C:\...`): no shares,
+no device paths, no `..`. A link only selects the item in Explorer; nothing
+is ever deleted or changed through it.
 ### Rolling it out
 
 - **Users:** copy the signed exe to a shared or local folder and give them a
@@ -202,6 +221,11 @@ The full file also has the size in bytes and the scan date.
   without that, the space shows up as *Not readable*.
 - **Help desk:** `SpaceMonger.exe \\PC01\c$` from an admin workstation shows
   the remote drive without installing anything on it.
+- **A report for every user, without IT handling the data:** run
+  `/html "%OneDrive%\Disk report\"` in the user's context (an Intune
+  remediation script or a scheduled task, e.g. only when the drive is more
+  than 85 % full) plus `/register` once. Each user gets their own map in
+  their own OneDrive; file names never leave their account.
 
 ## Documentation
 

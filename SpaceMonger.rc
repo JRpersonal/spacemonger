@@ -272,6 +272,9 @@ IDB_SCAN4               BITMAP  DISCARDABLE     "res\\scan4.bmp"
 IDR_TOOLBAR_EN          BITMAP  DISCARDABLE     "res\\toolbar_en.bmp"
 IDR_TOOLBAR_FR          BITMAP  DISCARDABLE     "res\\toolbar_fr.bmp"
 
+// HTML report page (HtmlReport.h); the scan data is filled in at export.
+REPORT_HTML             RCDATA  DISCARDABLE     "res\\report.html"
+
 #ifndef _MAC
 /////////////////////////////////////////////////////////////////////////////
 //
