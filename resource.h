@@ -115,6 +115,7 @@
 #define ID_TOOLS_CLEANUP                40020
 #define ID_FILE_RUNAS                   40021
 #define ID_FILE_EXPORT                  40022
+#define ID_FILE_REPORT                  40023
 #define ID_FILE_PROPERTIES              40018
 
 // Next default values for new objects
@@ -122,7 +123,7 @@
 #ifdef APSTUDIO_INVOKED
 #ifndef APSTUDIO_READONLY_SYMBOLS
 #define _APS_NEXT_RESOURCE_VALUE        125
-#define _APS_NEXT_COMMAND_VALUE         40023
+#define _APS_NEXT_COMMAND_VALUE         40024
 #define _APS_NEXT_CONTROL_VALUE         1068
 #define _APS_NEXT_SYMED_VALUE           101
 #endif

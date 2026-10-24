@@ -26,7 +26,7 @@ static const wchar_t *attribnames[] = {
 
 static const wchar_t *frtoolbarlabels[] = {
 	L"Ouvrir", L"Rouvrir", L"Voir tout", L"Zoom +", L"Zoom -",
-	L"Espace libre", L"Système", L"Effacer", L"Nettoyer", L"Lancer en administrateur", L"Réglages", L"À propos",
+	L"Espace libre", L"Système", L"Effacer", L"Nettoyer", L"Rapport", L"Lancer en administrateur", L"Réglages", L"À propos",
 };
 
 static const wchar_t *frfiletypes[] = {

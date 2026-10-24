@@ -13,6 +13,8 @@ every release needs a `## [X.Y.Z]` section here first.
   by double-click, Explorer on a double-clicked file (as in the window) and
   the biggest folders and files. No network needed; a
   whole drive is a few hundred KB, so it fits into OneDrive or a mail.
+- *Report* button in the toolbar, in the accent colour: writes the HTML page
+  of the scan to *Documents\SpaceMonger* and opens it in the browser.
 - *Show in Explorer* from the HTML page through `spacemonger:` links,
   set up per user with `/register` (`/unregister` removes them). Only plain
   local paths are accepted; a link never deletes or changes anything.

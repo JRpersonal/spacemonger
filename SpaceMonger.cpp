@@ -47,6 +47,7 @@ BEGIN_MESSAGE_MAP(CSpaceMonger, CWinApp)
 	ON_COMMAND(ID_SETTINGS, OnSettings)
 	ON_COMMAND(ID_FILE_RUNAS, OnRunAsAdmin)
 	ON_COMMAND(ID_FILE_EXPORT, OnExport)
+	ON_COMMAND(ID_FILE_REPORT, OnReport)
 	//}}AFX_MSG_MAP
 	ON_UPDATE_COMMAND_UI_RANGE(100, 41000, OnIgnoreUpdate)
 END_MESSAGE_MAP()
@@ -486,6 +487,33 @@ void CSpaceMonger::OnExport(void)
 	CString done;
 	done.Format(CurLang->export_done_format, (LPCWSTR)file);
 	m_mainframe->MessageBox(done, L"SpaceMonger", MB_ICONINFORMATION | MB_OK);
+}
+
+// The Report button: the HTML page of the current scan, written to
+// Documents\SpaceMonger\<COMPUTER>_<date>.html and opened in the browser,
+// without asking where (Export list asks, and also offers CSV).
+void CSpaceMonger::OnReport(void)
+{
+	CFolderTree *ft = (CFolderTree *)m_document;
+	if (ft == NULL || ft->GetRoot() == NULL) return;
+	SM_ReportVolume volume = MakeReportVolume(*ft);
+
+	PWSTR documents = NULL;
+	CString folder;
+	if (SUCCEEDED(::SHGetKnownFolderPath(FOLDERID_Documents, 0, NULL, &documents))) folder = documents;
+	::CoTaskMemFree(documents);
+	if (folder.IsEmpty()) { OnExport(); return; }
+	folder += L"\\SpaceMonger\\";
+	::SHCreateDirectoryExW(NULL, folder, NULL);
+
+	std::wstring file = SM_ResolveReportPath((LPCWSTR)folder, volume.computer, L".html");
+	if (!SM_WriteUtf8File(file, BuildHtmlPage(*ft, m_settings.hide_system != 0))) {
+		CString message;
+		message.Format(L"%s\n\nWindows error %lu", file.c_str(), ::GetLastError());
+		m_mainframe->MessageBox(message, L"SpaceMonger", MB_ICONWARNING | MB_OK);
+		return;
+	}
+	::ShellExecuteW(m_mainframe->GetSafeHwnd(), L"open", file.c_str(), NULL, NULL, SW_SHOWNORMAL);
 }
 
 // Restarts elevated on the same path, so folders of other users and System

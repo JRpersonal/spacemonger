@@ -452,16 +452,16 @@ const UINT kToolbarCommands[] = {
 	ID_VIEW_ZOOM_FULL, ID_VIEW_ZOOM_IN, ID_VIEW_ZOOM_OUT, ID_SEPARATOR,
 	ID_VIEW_FREE, ID_VIEW_HIDE_SYSTEM, ID_SEPARATOR,
 	ID_FILE_DELETE, ID_SEPARATOR,
-	ID_TOOLS_CLEANUP, ID_FILE_RUNAS, ID_SEPARATOR,
+	ID_TOOLS_CLEANUP, ID_FILE_REPORT, ID_FILE_RUNAS, ID_SEPARATOR,
 	ID_SETTINGS, ID_SEPARATOR,
 	ID_APP_ABOUT,
 };
 
 // Code points shared by Segoe Fluent Icons (Windows 11) and Segoe MDL2
 // Assets (Windows 10): FolderOpen, Refresh, FullScreen, ZoomIn, ZoomOut,
-// PieSingle, System, Delete, Broom, Shield, Setting, Info.
+// PieSingle, System, Delete, Broom, ReportDocument, Shield, Setting, Info.
 const wchar_t kToolbarGlyphs[] = {
-	0xE838, 0xE72C, 0xE740, 0xE8A3, 0xE71F, 0xEB05, 0xE770, 0xE74D, 0xEA99, 0xEA18, 0xE713, 0xE946,
+	0xE838, 0xE72C, 0xE740, 0xE8A3, 0xE71F, 0xEB05, 0xE770, 0xE74D, 0xEA99, 0xE9F9, 0xEA18, 0xE713, 0xE946,
 };
 const int kToolbarImageCount = sizeof(kToolbarGlyphs) / sizeof(kToolbarGlyphs[0]);
 
@@ -532,6 +532,7 @@ CMainToolBar::CMainToolBar()
 	m_dpi = 96;
 	m_buttonHeight = 22;
 	m_font = NULL;
+	m_iconFont = NULL;
 	m_images = NULL;
 	m_disabledImages = NULL;
 }
@@ -541,6 +542,7 @@ CMainToolBar::~CMainToolBar()
 	if (m_images != NULL) ImageList_Destroy(m_images);
 	if (m_disabledImages != NULL) ImageList_Destroy(m_disabledImages);
 	if (m_font != NULL) ::DeleteObject(m_font);
+	if (m_iconFont != NULL) ::DeleteObject(m_iconFont);
 }
 
 int CMainToolBar::Create(CWnd *parent)
@@ -581,6 +583,10 @@ void CMainToolBar::Rebuild(void)
 	}
 
 	int iconSize = MulDiv(16, (int)m_dpi, 96);
+	HFONT iconFont = ::CreateFontW(-iconSize, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+		OUT_TT_PRECIS, CLIP_DEFAULT_PRECIS, ANTIALIASED_QUALITY, DEFAULT_PITCH, SM_IconFontFace());
+	if (m_iconFont != NULL) ::DeleteObject(m_iconFont);
+	m_iconFont = iconFont;
 	const SM_Theme &theme = SM_CurrentTheme();
 	HIMAGELIST images = CreateGlyphImageList(iconSize, theme.text, theme.dark);
 	HIMAGELIST disabled = CreateGlyphImageList(iconSize, theme.dark ? RGB(128, 128, 128) : theme.grayText, theme.dark);
@@ -653,8 +659,13 @@ void CMainToolBar::OnCustomDraw(NMHDR *pNotify, LRESULT *pResult)
 		::FillRect(cd->nmcd.hdc, &rect, theme.faceBrush);
 		*pResult = CDRF_SKIPDEFAULT;
 	}
-	else if (cd->nmcd.dwDrawStage == CDDS_PREPAINT && theme.dark) {
+	else if (cd->nmcd.dwDrawStage == CDDS_PREPAINT) {
 		*pResult = CDRF_NOTIFYITEMDRAW;
+	}
+	else if (cd->nmcd.dwDrawStage == CDDS_ITEMPREPAINT && cd->nmcd.dwItemSpec == ID_FILE_REPORT
+		&& !(cd->nmcd.uItemState & CDIS_DISABLED)) {
+		DrawAccentButton(cd);
+		*pResult = CDRF_SKIPDEFAULT;
 	}
 	else if (cd->nmcd.dwDrawStage == CDDS_ITEMPREPAINT && theme.dark) {
 		// Light labels; the light theme plate behind hot and checked buttons
@@ -677,6 +688,54 @@ void CMainToolBar::OnCustomDraw(NMHDR *pNotify, LRESULT *pResult)
 		}
 		*pResult = TBCDRF_USECDCOLORS | TBCDRF_NOBACKGROUND | TBCDRF_NOEDGES | TBCDRF_NOOFFSET;
 	}
+}
+
+// The Report button stands out like a dialog's default button: accent plate,
+// white icon and label, centred in the rectangle the control sized for it.
+void CMainToolBar::DrawAccentButton(NMTBCUSTOMDRAW *cd)
+{
+	HDC dc = cd->nmcd.hdc;
+	RECT rc = cd->nmcd.rc;
+	const int inset = MulDiv(2, (int)m_dpi, 96);
+	::InflateRect(&rc, 0, -inset);
+	COLORREF accent = ::GetSysColor(COLOR_HIGHLIGHT);
+	if (cd->nmcd.uItemState & CDIS_SELECTED) accent = RGB(GetRValue(accent) * 4 / 5, GetGValue(accent) * 4 / 5, GetBValue(accent) * 4 / 5);
+	else if (cd->nmcd.uItemState & CDIS_HOT) accent = RGB((GetRValue(accent) * 4 + 255) / 5, (GetGValue(accent) * 4 + 255) / 5, (GetBValue(accent) * 4 + 255) / 5);
+	HBRUSH brush = ::CreateSolidBrush(accent);
+	HPEN pen = ::CreatePen(PS_SOLID, 1, accent);
+	HGDIOBJ oldBrush = ::SelectObject(dc, brush);
+	HGDIOBJ oldPen = ::SelectObject(dc, pen);
+	int round = MulDiv(4, (int)m_dpi, 96);
+	::RoundRect(dc, rc.left, rc.top, rc.right, rc.bottom, round, round);
+	::SelectObject(dc, oldPen);
+	::SelectObject(dc, oldBrush);
+	::DeleteObject(pen);
+	::DeleteObject(brush);
+
+	int index = CommandToIndex(ID_FILE_REPORT);
+	TBBUTTON button;
+	memset(&button, 0, sizeof(button));
+	wchar_t label[128] = L"";
+	if (index >= 0 && GetButton(index, &button) && button.iString >= 0)
+		::SendMessageW(m_hWnd, TB_GETSTRINGW, MAKEWPARAM(_countof(label) - 1, button.iString), (LPARAM)label);
+	const wchar_t glyph = 0xE9F9;
+	int iconSize = MulDiv(16, (int)m_dpi, 96);
+	int gap = MulDiv(6, (int)m_dpi, 96);
+
+	::SetBkMode(dc, TRANSPARENT);
+	::SetTextColor(dc, RGB(255, 255, 255));
+	HGDIOBJ oldFont = ::SelectObject(dc, m_font);
+	SIZE text = { 0, 0 };
+	::GetTextExtentPoint32W(dc, label, (int)wcslen(label), &text);
+	int x = rc.left + max(0, (int)(rc.right - rc.left - iconSize - gap - text.cx) / 2);
+	RECT textRect = { x + iconSize + gap, rc.top, rc.right, rc.bottom };
+	::DrawTextW(dc, label, -1, &textRect, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+	if (m_iconFont != NULL) {
+		::SelectObject(dc, m_iconFont);
+		RECT iconRect = { x, rc.top, x + iconSize, rc.bottom };
+		::DrawTextW(dc, &glyph, 1, &iconRect, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+	}
+	::SelectObject(dc, oldFont);
 }
 
 BOOL CMainToolBar::OnEraseBkgnd(CDC *pDC)
@@ -721,6 +780,7 @@ void CMainToolBar::UpdateButtonsForView(CFolderView *view)
 	SetButtonEnabledIfChanged(ctrl, ID_VIEW_FREE, view->IsAnythingOpen());
 	SetButtonEnabledIfChanged(ctrl, ID_VIEW_HIDE_SYSTEM, view->IsAnythingOpen());
 	SetButtonEnabledIfChanged(ctrl, ID_TOOLS_CLEANUP, 1);
+	SetButtonEnabledIfChanged(ctrl, ID_FILE_REPORT, view->IsAnythingOpen());
 	SetButtonEnabledIfChanged(ctrl, ID_FILE_RUNAS, !::IsUserAnAdmin());
 	SetButtonEnabledIfChanged(ctrl, ID_SETTINGS, 1);
 	SetButtonEnabledIfChanged(ctrl, ID_APP_ABOUT, 1);

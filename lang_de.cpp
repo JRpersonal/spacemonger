@@ -27,7 +27,7 @@ static const wchar_t *attribnames[] = {
 
 static const wchar_t *toolbarlabels[] = {
 	L"Öffnen", L"Neu scannen", L"Ganz heraus", L"Hinein", L"Heraus",
-	L"Freier Platz", L"System", L"Löschen", L"Aufräumen", L"Als Administrator starten", L"Einstellungen", L"Info",
+	L"Freier Platz", L"System", L"Löschen", L"Aufräumen", L"Bericht", L"Als Administrator starten", L"Einstellungen", L"Info",
 };
 
 static const wchar_t *filetypes[] = {

@@ -53,7 +53,9 @@ protected:
 	UINT m_dpi;
 	int m_buttonHeight;
 	HFONT m_font;
+	HFONT m_iconFont;	// the Report button's glyph (DrawAccentButton)
 	HIMAGELIST m_images;
+	void DrawAccentButton(NMTBCUSTOMDRAW *cd);
 	HIMAGELIST m_disabledImages;
 public:
 
