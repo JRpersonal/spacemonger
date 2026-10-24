@@ -100,7 +100,7 @@ const TEXT = {
     explorerHint: "Opens Explorer when SpaceMonger is set up on this PC.",
     biggestFolders: "Biggest folders", biggestFiles: "Biggest files", selected: "Selected",
     pick: "Click a box in the map or a line in the lists. Double-click a folder to zoom in.",
-    mapHint: "Every box is a folder or file, sized by the space it takes. Hover for details, double-click a folder to zoom in, Esc to go back.",
+    mapHint: "Every box is a folder or file, sized by the space it takes. Hover for details, double-click a folder to zoom in or a file to show it in Explorer, Esc to go back.",
     system: "Managed by Windows", made: "Made with", noData: "This page contains no scan."
   },
   de: {
@@ -112,7 +112,7 @@ const TEXT = {
     explorerHint: "Öffnet den Explorer, wenn SpaceMonger auf diesem PC eingerichtet ist.",
     biggestFolders: "Größte Ordner", biggestFiles: "Größte Dateien", selected: "Ausgewählt",
     pick: "Klicken Sie auf ein Feld in der Karte oder auf eine Zeile in den Listen. Doppelklick auf einen Ordner zoomt hinein.",
-    mapHint: "Jedes Feld ist ein Ordner oder eine Datei, so groß wie der Platz, den sie belegen. Mauszeiger für Details, Doppelklick auf einen Ordner zoomt hinein, Esc geht zurück.",
+    mapHint: "Jedes Feld ist ein Ordner oder eine Datei, so groß wie der Platz, den sie belegen. Mauszeiger für Details, Doppelklick auf einen Ordner zoomt hinein, auf eine Datei zeigt sie im Explorer, Esc geht zurück.",
     system: "Von Windows verwaltet", made: "Erstellt mit", noData: "Diese Seite enthält keinen Scan."
   },
   fr: {
@@ -124,7 +124,7 @@ const TEXT = {
     explorerHint: "Ouvre l'Explorateur si SpaceMonger est configuré sur ce PC.",
     biggestFolders: "Plus grands dossiers", biggestFiles: "Plus grands fichiers", selected: "Sélection",
     pick: "Cliquez sur une case de la carte ou une ligne des listes. Double-cliquez sur un dossier pour zoomer.",
-    mapHint: "Chaque case est un dossier ou un fichier, à la taille de l'espace occupé. Survolez pour les détails, double-cliquez sur un dossier pour zoomer, Échap pour revenir.",
+    mapHint: "Chaque case est un dossier ou un fichier, à la taille de l'espace occupé. Survolez pour les détails, double-cliquez sur un dossier pour zoomer ou sur un fichier pour l'afficher dans l'Explorateur, Échap pour revenir.",
     system: "Géré par Windows", made: "Créé avec", noData: "Cette page ne contient aucune analyse."
   }
 };
@@ -584,8 +584,10 @@ function render() {
   canvas.addEventListener("dblclick", ev => {
     const n = hit(ev);
     if (!n || n.special) return;
+    // As in the window: a folder zooms in, a file is shown in Explorer.
     const it = n.item.rest ? n.item.owner : n.item;
     if (it.folder) zoomTo(it);
+    else location.href = linkFor(it);
   });
   document.addEventListener("keydown", ev => {
     if ((ev.key === "Escape" || ev.key === "Backspace") && state.zoom.parent && !/INPUT|TEXTAREA/.test(ev.target.tagName)) {
