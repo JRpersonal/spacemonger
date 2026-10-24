@@ -7,6 +7,8 @@ every release needs a `## [X.Y.Z]` section here first.
 
 ## [Unreleased]
 
+## [1.4.6] - 2026-10-24
+
 ### Added
 - Command line: `SpaceMonger.exe <path>` scans a drive, folder or share
   (`\\PC01\c$`) directly; `/report <file or folder>` scans without a window,

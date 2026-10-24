@@ -1,5 +1,5 @@
 
-SpaceMonger Version 1.4.5
+SpaceMonger Version 1.4.6
 -------------------------
 
 
@@ -19,7 +19,7 @@ The latest version of SpaceMonger is always available at:
 SYSTEM REQUIREMENTS
 -------------------
 
-SpaceMonger 1.4.5 is optimized for modern Windows environments. It is intended
+SpaceMonger 1.4.6 is optimized for modern Windows environments. It is intended
 to run on Windows 10, Windows 11, and modern Windows Server editions.
 Because it is a native C++ MFC application, it has virtually zero dependencies
 and remains incredibly lightweight. Any PC capable of running Windows today
@@ -116,6 +116,18 @@ users of the program to give away copies to their friends.
 
 WHAT'S NEW
 ----------
+
+Between 1.4.5 and 1.4.6 (Modern Look, Free Up Space, Reports)
+   * Windows look with Fluent icons, dark mode, sharp text at any DPI,
+     a progress strip instead of the scan dialog, and a calmer live scan.
+   * Path bar, search (Ctrl+F), colour by file type with a legend, and
+     system folders shown muted or hidden.
+   * Free Up Space: temporary files, caches and the Recycle Bin in one
+     click; your biggest files listed with tips.
+   * Scan folders and network shares (\\PC01\c$), drag and drop, Run as
+     administrator, CSV export, and a headless /report mode for rollouts.
+   * German translation; the language follows Windows.
+   * Fixed: 1.4.5 did not start (side-by-side configuration error).
 
 Between 1.4.4 and 1.4.5 (Signed Releases)
    * Executables are now code signed (Certum Open Source certificate) and
