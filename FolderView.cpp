@@ -1083,22 +1083,19 @@ void CFolderView::MinimalDrawDisplayFolder(CDC *pDC, const TreemapNode *cur, BOO
 				if (ts <= 1) ts = 1;
 				si32 freepercent = (si32)(ft->freespace * (ui64)1000 / ts);
 				string.Format(CurLang->freespace_format, freepercent / 10, freepercent % 10);
-				// Four lines around the centre; at 100 % the classic offsets
-				// -18, -6, +6, +15 for a 12 px line pitch.
+				// Two centred lines: the share free, and how much that is of the
+				// drive. File and folder counts tell nobody anything here.
 				const int step = m_lineStep;
-				size = pDC->GetTextExtent(string);
-				if (size.cx > w-2) tx = x + 2;
-				else tx = x + (w - size.cx) / 2;
-				pDC->TextOut(tx, ty - (step * 3) / 2, string);
-
-				string = GetSizeString(ft->freespace, ft->totalspace, 0) + L" " + CurLang->free;
-				pDC->TextOut(tx, ty - step / 2, string);
-
-				string.Format(L"%s  %u", CurLang->files_total, ft->numfiles);
-				pDC->TextOut(tx, ty + step / 2, string);
-
-				string.Format(L"%s  %u", CurLang->folders_total, ft->numfolders);
-				pDC->TextOut(tx, ty + (step * 5) / 4, string);
+				CString lines[2] = {
+					string,
+					CString(SM_FormatBytes(ft->freespace).c_str()) + L" " + CurLang->free + L" / "
+						+ SM_FormatBytes(ft->totalspace).c_str() + L" " + CurLang->total,
+				};
+				for (int line = 0; line < 2; ++line) {
+					size = pDC->GetTextExtent(lines[line]);
+					tx = size.cx > w - 2 ? x + 2 : x + (w - size.cx) / 2;
+					pDC->TextOut(tx, ty - step + line * step, lines[line]);
+				}
 			}
 		}
 		else {

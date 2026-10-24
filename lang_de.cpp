@@ -30,6 +30,10 @@ static const wchar_t *toolbarlabels[] = {
 	L"Freier Platz", L"System", L"Löschen", L"Aufräumen", L"Als Administrator starten", L"Einstellungen", L"Info",
 };
 
+static const wchar_t *filetypes[] = {
+	L"Videos", L"Bilder", L"Musik", L"Dokumente", L"Archive und Images", L"Programme", L"Sonstiges",
+};
+
 static const wchar_t *cleanupkinds[] = {
 	L"Temporäre Dateien (Ihr Konto)", L"Temporäre Dateien (Windows)", L"Internet-Cache",
 	L"Absturzabbilder", L"Windows-Fehlerberichte", L"DirectX-Shader-Cache",
@@ -114,6 +118,7 @@ Lang LangDe = {
 	L"Dateien und Ordner suchen",
 	L"%s Treffer",
 	L"SpaceMonger konnte nicht als Administrator neu gestartet werden.",
+	filetypes,
 	cleanupkinds,
 	cleanuphints,
 	toolbarlabels,

@@ -42,6 +42,10 @@ static const wchar_t *entoolbarlabels[] = {
 	L"Free Space", L"System", L"Delete", L"Clean Up", L"Run as administrator", L"Settings", L"About",
 };
 
+static const wchar_t *enfiletypes[] = {
+	L"Videos", L"Pictures", L"Music", L"Documents", L"Archives and images", L"Programs", L"Other",
+};
+
 static const wchar_t *encleanupkinds[] = {
 	L"Temporary files (your account)", L"Temporary files (Windows)", L"Internet cache",
 	L"Crash dumps", L"Windows error reports", L"DirectX shader cache",
@@ -126,6 +130,7 @@ Lang LangUs = {
 	L"Search files and folders",
 	L"%s matches",
 	L"SpaceMonger could not be restarted as administrator.",
+	enfiletypes,
 	encleanupkinds,
 	encleanuphints,
 	entoolbarlabels,
@@ -201,6 +206,7 @@ Lang LangUk = {
 	L"Search files and folders",
 	L"%s matches",
 	L"SpaceMonger could not be restarted as administrator.",
+	enfiletypes,
 	encleanupkinds,
 	encleanuphints,
 	entoolbarlabels,

@@ -29,6 +29,10 @@ static const wchar_t *frtoolbarlabels[] = {
 	L"Espace libre", L"Système", L"Effacer", L"Nettoyer", L"Lancer en administrateur", L"Réglages", L"À propos",
 };
 
+static const wchar_t *frfiletypes[] = {
+	L"Vidéos", L"Images", L"Musique", L"Documents", L"Archives et images disque", L"Programmes", L"Autres",
+};
+
 static const wchar_t *frcleanupkinds[] = {
 	L"Fichiers temporaires (votre compte)", L"Fichiers temporaires (Windows)", L"Cache Internet",
 	L"Vidages sur incident", L"Rapports d'erreurs Windows", L"Cache des shaders DirectX",
@@ -113,6 +117,7 @@ Lang LangFr = {
 	L"Rechercher des fichiers et dossiers",
 	L"%s résultats",
 	L"SpaceMonger n'a pas pu être relancé en tant qu'administrateur.",
+	frfiletypes,
 	frcleanupkinds,
 	frcleanuphints,
 	frtoolbarlabels,

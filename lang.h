@@ -61,6 +61,7 @@ struct Lang {
 	const wchar_t *search_cue;			// grey hint in the search box
 	const wchar_t *search_result_format;	// %s matches
 	const wchar_t *restart_admin_failed;
+	const wchar_t **filetype_labels;	// SM_FileType order (legend)
 	const wchar_t **cleanup_kind_labels;	// SM_CleanupKind order
 	const wchar_t **cleanup_hint_labels;	// SM_LargeFileKind order
 	// Toolbar labels in button order: open, rescan, zoom full, zoom in,

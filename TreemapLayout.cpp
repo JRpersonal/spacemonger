@@ -229,15 +229,19 @@ static void ComputeLayoutInternal(
 {
 	if (folder == nullptr || folder->cur == 0 || w <= 0 || h <= 0) return;
 
-	std::vector<int> indices;
-	indices.reserve(folder->cur);
+	// Sized up front, then trimmed: a default-constructed vector allocates in
+	// its noexcept constructor under the debug STL, so an allocation failure
+	// there would terminate instead of reaching the caller's bad_alloc handler.
+	std::vector<int> indices(folder->cur);
+	size_t kept = 0;
 	for (unsigned int i = 0; i < folder->cur; i++) {
 		// A volume layout places free and unavailable space itself.
 		if (skipVolumeSpecials && folder->names[i] != nullptr
 			&& (folder->names[i][0] == L'<' || folder->names[i][0] == L'|')) continue;
 		if (config.hideSystem && folder == config.volumeRoot && SM_IsSystemRootEntry(folder->names[i])) continue;
-		indices.push_back((int)i);
+		indices[kept++] = (int)i;
 	}
+	indices.resize(kept);
 	if (indices.empty()) return;
 
 	// The greedy split in SizeFolders assumes sizes in descending order.
