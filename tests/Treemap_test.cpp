@@ -417,6 +417,8 @@ static int test_subthreshold_placeholder_depth_and_bounds()
 		// Placeholder identity: no name, no source index.
 		CHECK(n.name == nullptr);
 		CHECK(n.index == (ui32)-1);
+		// ...but it names one of its entries, which colours it by file type.
+		CHECK(n.sample < root.cur);
 		// Must carry the parent depth so it renders as a depth-colored
 		// block, never -1 (which renders as invisible flat gray).
 		CHECK(n.depth == 0);

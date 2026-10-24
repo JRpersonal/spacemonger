@@ -23,11 +23,12 @@ struct TreemapNode {
 	ui32 flags;
 	CFolder *source;
 	ui32 index;
+	ui32 sample;          // placeholder block (index -1): its largest entry, else -1
 	si16 x, y, w, h;
 
 	TreemapNode()
 		: name(nullptr), depth(0), flags(TREEMAP_FLAG_NONE),
-		  source(nullptr), index((ui32)-1),
+		  source(nullptr), index((ui32)-1), sample((ui32)-1),
 		  x(0), y(0), w(0), h(0) {}
 
 	inline bool IsFolder() const { return (flags & TREEMAP_FLAG_FOLDER) != 0; }
