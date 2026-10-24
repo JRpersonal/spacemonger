@@ -7,6 +7,8 @@ every release needs a `## [X.Y.Z]` section here first.
 
 ## [Unreleased]
 
+## [1.4.7] - 2026-10-24
+
 ### Added
 - HTML report: `/html <file or folder>` (and *Export list*, `Ctrl+E`) writes
   one self-contained page with the map as in the window, hover details, zoom
@@ -34,7 +36,8 @@ every release needs a `## [X.Y.Z]` section here first.
   magnifier, an accent frame while typing, and a hint readable in dark mode.
 - README: starts with the problem SpaceMonger solves and what people use it
   for, then the features with screenshots and close-ups; what this fork is
-  for, rollout notes.
+  for, and a rollout guide for IT (per-user HTML reports through Intune or
+  a scheduled task, help desk, inventory).
 
 ## [1.4.6] - 2026-10-24
 

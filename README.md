@@ -215,22 +215,118 @@ user's OneDrive or sent by mail. A whole drive is a few hundred KB.
 such a link, SpaceMonger accepts only plain local paths (`C:\...`): no shares,
 no device paths, no `..`. A link only selects the item in Explorer; nothing
 is ever deleted or changed through it.
-### Rolling it out
+## Rolling it out in a company
 
-- **Users:** copy the signed exe to a shared or local folder and give them a
-  shortcut; with a path argument it skips the drive dialog.
-- **Inventory:** run the `/report` line from a logon script, a scheduled task
-  or your software deployment tool and collect the CSV files on a share.
-  Run it elevated (or as SYSTEM) to include folders the user cannot read;
-  without that, the space shows up as *Not readable*.
-- **Help desk:** `SpaceMonger.exe \\PC01\c$` from an admin workstation shows
-  the remote drive without installing anything on it.
-- **A report for every user, without IT handling the data:** run
-  `/html "%OneDrive%\Disk report\"` in the user's context (an Intune
-  remediation script or a scheduled task, e.g. only when the drive is more
-  than 85 % full) plus `/register` once. Each user gets their own map in
-  their own OneDrive; file names never leave their account.
+SpaceMonger is one signed exe without an installer, services or network
+access, so rolling it out means copying a file and running it with the
+right arguments. Three ways to use it, from the one that needs the least
+from IT to the one that needs the most:
 
+| | Who looks at the data | What IT handles |
+|---|---|---|
+| **Report for every user** (recommended) | each user, their own drive | a script, no data |
+| **Help desk** | the technician, on request | one remote drive at a time |
+| **Inventory** | IT, all PCs | CSV files with paths, on a share |
+
+### 1. Put the exe on the PCs
+
+Copy `SpaceMonger-x64.exe` (or the ARM64 build) to
+`C:\Program Files\SpaceMonger\SpaceMonger.exe`, with Intune (Win32 app),
+Configuration Manager, a GPO file copy or your own tool. Check the
+signature first, see [verifying a download](SECURITY.md#verifying-a-download).
+Users can start it from a shortcut; settings go to
+`HKCU\Software\65\SpaceMonger`, nothing has to be configured.
+
+### 2. A report for every user, without IT touching the data
+
+Every PC writes the map of its own drive as an [HTML report](#html-report)
+into the user's OneDrive, only when the drive is getting full. The user
+opens it in the browser, sees what takes the space and jumps to it in
+Explorer. File names never leave the user's account: IT sees only whether
+the script ran.
+
+```mermaid
+flowchart LR
+  A["Intune remediation<br>or scheduled task<br>(user context, weekly)"] --> B{"Drive more than<br>85 % full and no<br>report this week?"}
+  B -- no --> Z["nothing happens"]
+  B -- yes --> C["SpaceMonger.exe /html<br>scans C:, writes<br>PC_date.html"]
+  C --> D["OneDrive\Disk report<br>(only the user)"]
+  D --> E["User opens it: map,<br>biggest files,<br>Show in Explorer"]
+```
+
+**With Intune** (*Devices > Scripts and remediations > Remediations*):
+create a script package with the two scripts below, set *Run this script
+using the logged-on credentials* to **Yes** and the schedule to weekly.
+Intune then reports per device only whether the drive was over the limit
+and whether the report was written.
+
+Detection script: asks for a report when the drive is more than 85 % full
+and none was written in the last 7 days.
+
+```powershell
+$drive = Get-PSDrive -Name $env:SystemDrive.TrimEnd(':')
+$usedPercent = 100 * $drive.Used / ($drive.Used + $drive.Free)
+$folder = if ($env:OneDrive) { Join-Path $env:OneDrive 'Disk report' }
+          else { Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'SpaceMonger' }
+$recent = Get-ChildItem $folder -Filter *.html -ErrorAction SilentlyContinue |
+          Where-Object LastWriteTime -gt (Get-Date).AddDays(-7)
+if ($usedPercent -gt 85 -and -not $recent) { exit 1 }   # run the remediation
+exit 0
+```
+
+Remediation script: sets up *Show in Explorer* for the user and writes the
+report (`<COMPUTER>_<yyyy-mm-dd>.html`).
+
+```powershell
+$exe = "$env:ProgramFiles\SpaceMonger\SpaceMonger.exe"
+$folder = if ($env:OneDrive) { Join-Path $env:OneDrive 'Disk report' }
+          else { Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'SpaceMonger' }
+New-Item -ItemType Directory -Force $folder | Out-Null
+Start-Process $exe -ArgumentList '/register' -Wait
+$scan = Start-Process $exe -ArgumentList '/html', "`"$folder`"" -Wait -PassThru
+exit $scan.ExitCode   # 0 = written, see "Command line" for the others
+```
+
+To show the report right away instead of leaving it in the folder, add
+`Get-ChildItem $folder -Filter *.html | Sort-Object LastWriteTime | Select-Object -Last 1 | Invoke-Item`
+before the `exit`.
+
+**Without Intune:** a GPO scheduled task (*User Configuration > Preferences
+> Control Panel Settings > Scheduled Tasks*, *Run in logged-on user's
+security context*) that starts `powershell.exe -ExecutionPolicy Bypass -File
+<script>` weekly with both parts in one script: the check, then the report.
+
+Tell users once where the report appears, for example in the intranet: *If
+your drive is getting full, you'll find a map of it in OneDrive under
+"Disk report".*
+
+### 3. Help desk
+
+`SpaceMonger.exe \\PC01\c$` on an admin workstation shows a remote drive
+over its admin share, without installing anything on that PC. *Report* in
+the toolbar writes the HTML page of it, to attach to the ticket.
+
+### 4. Inventory across all PCs
+
+For an overview of where space goes across the fleet, run the CSV report
+as SYSTEM (scheduled task or deployment tool) and collect it on a share:
+
+```text
+"C:\Program Files\SpaceMonger\SpaceMonger.exe" /report \\srv\reports$\ /top 50
+```
+
+Each PC writes `<COMPUTER>_<yyyy-mm-dd>.csv` (biggest folders and files,
+drive size, used, free). As SYSTEM it can read every folder; as a user,
+other users' folders show up as *Not readable*. Give the computer accounts
+only *create files* on the share, no read. The CSV contains paths and file
+names, which are personal data: agree on it with data protection (and, in
+Germany, the works council) first, or prefer the per-user report above.
+
+### Removing it
+
+Delete the exe. Per user, `SpaceMonger.exe /unregister` removes the
+`spacemonger:` link, and `HKCU\Software\65\SpaceMonger` holds the settings.
+Nothing else is left behind.
 ## Documentation
 
 | Topic | |
