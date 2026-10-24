@@ -23,6 +23,27 @@ CFolderView *View()
 	return (CFolderView *)theApp.m_view;
 }
 
+// The edit's own cue banner is nearly invisible in dark mode, so the hint is
+// drawn here, after the edit has painted, while the box is empty.
+LRESULT CALLBACK SearchHintProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp, UINT_PTR, DWORD_PTR)
+{
+	LRESULT result = ::DefSubclassProc(hwnd, msg, wp, lp);
+	if (msg == WM_PAINT && ::GetWindowTextLengthW(hwnd) == 0) {
+		HDC dc = ::GetDC(hwnd);
+		HGDIOBJ oldFont = ::SelectObject(dc, (HFONT)::SendMessageW(hwnd, WM_GETFONT, 0, 0));
+		const SM_Theme &theme = SM_CurrentTheme();
+		::SetTextColor(dc, theme.dark ? RGB(165, 165, 165) : theme.grayText);
+		::SetBkMode(dc, TRANSPARENT);
+		RECT rc;
+		::GetClientRect(hwnd, &rc);
+		rc.left += LOWORD(::SendMessageW(hwnd, EM_GETMARGINS, 0, 0)) + 1;
+		::DrawTextW(dc, CurLang->search_cue, -1, &rc, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
+		::SelectObject(dc, oldFont);
+		::ReleaseDC(hwnd, dc);
+	}
+	return result;
+}
+
 int TextWidth(CDC &dc, const std::wstring &text)
 {
 	SIZE size = { 0, 0 };
@@ -42,16 +63,20 @@ BEGIN_MESSAGE_MAP(CPathBar, CWnd)
 	ON_WM_SETCURSOR()
 	ON_WM_CTLCOLOR()
 	ON_EN_CHANGE(kSearchId, OnSearchChanged)
+	ON_EN_SETFOCUS(kSearchId, OnSearchFocusChanged)
+	ON_EN_KILLFOCUS(kSearchId, OnSearchFocusChanged)
 	ON_WM_TIMER()
 END_MESSAGE_MAP()
 
 CPathBar::CPathBar()
-	: m_font(NULL), m_dpi(96), m_hot(-1), m_tracking(false), m_searching(false), m_matches(0)
+	: m_searchBox(0, 0, 0, 0), m_font(NULL), m_iconFont(NULL), m_dpi(96), m_hot(-1),
+	  m_tracking(false), m_searching(false), m_matches(0)
 {
 }
 
 CPathBar::~CPathBar()
 {
+	if (m_iconFont != NULL) ::DeleteObject(m_iconFont);
 }
 
 BOOL CPathBar::Create(CWnd *parent)
@@ -59,9 +84,10 @@ BOOL CPathBar::Create(CWnd *parent)
 	CString cls = AfxRegisterWndClass(CS_HREDRAW | CS_VREDRAW, ::LoadCursor(NULL, IDC_ARROW));
 	if (!CWnd::Create(cls, L"", WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN, CRect(0, 0, 1, 1), parent, 0x5101))
 		return FALSE;
-	if (!m_search.Create(WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_BORDER | ES_AUTOHSCROLL,
+	if (!m_search.Create(WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL,
 			CRect(0, 0, 1, 1), this, kSearchId))
 		return FALSE;
+	::SetWindowSubclass(m_search.m_hWnd, SearchHintProc, 0, 0);
 	Relabel();
 	ApplyTheme();
 	return TRUE;
@@ -69,8 +95,7 @@ BOOL CPathBar::Create(CWnd *parent)
 
 void CPathBar::Relabel(void)
 {
-	if (::IsWindow(m_search.m_hWnd))
-		::SendMessageW(m_search.m_hWnd, EM_SETCUEBANNER, TRUE, (LPARAM)CurLang->search_cue);
+	if (::IsWindow(m_search.m_hWnd)) m_search.Invalidate();	// the hint follows the language
 	Invalidate();
 }
 
@@ -87,6 +112,10 @@ void CPathBar::SetUiFont(HFONT font, UINT dpi)
 {
 	m_font = font;
 	m_dpi = dpi != 0 ? dpi : 96;
+	if (m_iconFont != NULL) ::DeleteObject(m_iconFont);
+	m_iconFont = ::CreateFontW(-Scale(14), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+		DEFAULT_CHARSET, OUT_TT_PRECIS, CLIP_DEFAULT_PRECIS, ANTIALIASED_QUALITY,
+		DEFAULT_PITCH, SM_IconFontFace());
 	if (::IsWindow(m_search.m_hWnd)) m_search.SendMessage(WM_SETFONT, (WPARAM)font, TRUE);
 	LayoutChildren();
 	Invalidate();
@@ -100,7 +129,7 @@ int CPathBar::GetDesiredHeight(void) const
 	::GetTextMetricsW(dc, &tm);
 	::SelectObject(dc, old);
 	::ReleaseDC(NULL, dc);
-	return tm.tmHeight + MulDiv(16, (int)m_dpi, 96);
+	return tm.tmHeight + MulDiv(20, (int)m_dpi, 96);
 }
 
 void CPathBar::SetSegments(const std::vector<Segment> &segments)
@@ -138,10 +167,23 @@ void CPathBar::LayoutChildren(void)
 	if (!::IsWindow(m_search.m_hWnd)) return;
 	CRect rect;
 	GetClientRect(&rect);
-	int height = max(1, GetDesiredHeight() - Scale(8));
-	int width = min(Scale(260), max(Scale(120), rect.Width() / 4));
-	m_search.SetWindowPos(NULL, rect.right - width - Scale(8), (rect.Height() - height) / 2,
-		width, height, SWP_NOZORDER | SWP_NOACTIVATE);
+	int boxHeight = max(1, rect.Height() - Scale(8));
+	int boxWidth = min(Scale(340), max(Scale(160), rect.Width() / 3));
+	m_searchBox.SetRect(rect.right - boxWidth - Scale(8), (rect.Height() - boxHeight) / 2,
+		rect.right - Scale(8), (rect.Height() - boxHeight) / 2 + boxHeight);
+
+	// The edit itself is one text line high, centred in the field right of
+	// the magnifier.
+	TEXTMETRICW tm = {};
+	HDC dc = ::GetDC(NULL);
+	HGDIOBJ old = ::SelectObject(dc, m_font != NULL ? m_font : ::GetStockObject(DEFAULT_GUI_FONT));
+	::GetTextMetricsW(dc, &tm);
+	::SelectObject(dc, old);
+	::ReleaseDC(NULL, dc);
+	int editHeight = min(boxHeight - 2, (int)tm.tmHeight + Scale(2));
+	int editLeft = m_searchBox.left + Scale(30);
+	m_search.SetWindowPos(NULL, editLeft, m_searchBox.top + (boxHeight - editHeight) / 2,
+		max(1, m_searchBox.right - Scale(8) - editLeft), editHeight, SWP_NOZORDER | SWP_NOACTIVATE);
 }
 
 void CPathBar::OnSize(UINT nType, int cx, int cy)
@@ -174,15 +216,34 @@ void CPathBar::OnPaint()
 	HGDIOBJ oldFont = ::SelectObject(dc.m_hDC, m_font != NULL ? m_font : ::GetStockObject(DEFAULT_GUI_FONT));
 	dc.SetBkMode(TRANSPARENT);
 
-	CRect searchRect(rect.right, 0, rect.right, 0);
-	if (::IsWindow(m_search.m_hWnd)) {
-		m_search.GetWindowRect(&searchRect);
-		ScreenToClient(&searchRect);
-	}
-	int right = searchRect.left - Scale(10);
 	TEXTMETRICW tm = {};
 	::GetTextMetricsW(dc.m_hDC, &tm);
 	int textTop = (rect.Height() - tm.tmHeight) / 2;
+
+	// The search field: rounded, filled like an edit, with a magnifier; the
+	// frame turns to the accent colour while it has the focus.
+	int right = rect.right;
+	if (!m_searchBox.IsRectEmpty()) {
+		const bool focused = ::IsWindow(m_search.m_hWnd) && ::GetFocus() == m_search.m_hWnd;
+		COLORREF frame = focused ? ::GetSysColor(COLOR_HIGHLIGHT)
+			: theme.dark ? RGB(105, 105, 105) : RGB(138, 138, 138);
+		CBrush fill(theme.editBack);
+		CPen pen(PS_SOLID, focused ? Scale(2) : max(1, Scale(1)), frame);
+		CBrush *oldBrush = dc.SelectObject(&fill);
+		CPen *oldPen = dc.SelectObject(&pen);
+		dc.RoundRect(&m_searchBox, CPoint(Scale(8), Scale(8)));
+		dc.SelectObject(oldPen);
+		dc.SelectObject(oldBrush);
+		if (m_iconFont != NULL) {
+			HGDIOBJ textFont = ::SelectObject(dc.m_hDC, m_iconFont);
+			const wchar_t magnifier = 0xE721;	// Search
+			CRect icon(m_searchBox.left + Scale(8), m_searchBox.top, m_searchBox.left + Scale(28), m_searchBox.bottom);
+			dc.SetTextColor(focused ? ::GetSysColor(COLOR_HIGHLIGHT) : theme.text);
+			::DrawTextW(dc.m_hDC, &magnifier, 1, &icon, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+			::SelectObject(dc.m_hDC, textFont);
+		}
+		right = m_searchBox.left - Scale(10);
+	}
 
 	// Match count left of the search box.
 	if (m_searching) {
@@ -325,13 +386,14 @@ void CPathBar::OnLButtonUp(UINT flags, CPoint point)
 {
 	int hit = HitSegment(point);
 	if (hit >= 0 && View() != NULL) View()->ZoomTo(m_segments[hit].folder);
+	else if (m_searchBox.PtInRect(point)) FocusSearch();	// the magnifier or the frame
 	CWnd::OnLButtonUp(flags, point);
 }
 
 HBRUSH CPathBar::OnCtlColor(CDC *pDC, CWnd *wnd, UINT ctlColor)
 {
 	const SM_Theme &theme = SM_CurrentTheme();
-	if (ctlColor == CTLCOLOR_EDIT && theme.dark) {
+	if (ctlColor == CTLCOLOR_EDIT) {
 		pDC->SetTextColor(theme.text);
 		pDC->SetBkColor(theme.editBack);
 		return theme.editBrush;
@@ -342,12 +404,18 @@ HBRUSH CPathBar::OnCtlColor(CDC *pDC, CWnd *wnd, UINT ctlColor)
 void CPathBar::OnSearchChanged()
 {
 	// Clearing the box ends the search at once; typing waits for a pause.
+	m_search.Invalidate();	// the hint appears or goes as a whole
 	if (m_search.GetWindowTextLength() == 0) {
 		KillTimer(kSearchTimer);
 		if (View() != NULL) View()->SetSearch(L"");
 		return;
 	}
 	SetTimer(kSearchTimer, kSearchDelayMs, NULL);
+}
+
+void CPathBar::OnSearchFocusChanged()
+{
+	InvalidateRect(&m_searchBox, FALSE);
 }
 
 void CPathBar::OnTimer(UINT_PTR id)

@@ -40,6 +40,7 @@ protected:
 	afx_msg BOOL OnSetCursor(CWnd *wnd, UINT hitTest, UINT message);
 	afx_msg HBRUSH OnCtlColor(CDC *pDC, CWnd *wnd, UINT ctlColor);
 	afx_msg void OnSearchChanged();
+	afx_msg void OnSearchFocusChanged();
 	afx_msg void OnTimer(UINT_PTR id);
 	virtual BOOL PreTranslateMessage(MSG *msg);
 	DECLARE_MESSAGE_MAP()
@@ -48,8 +49,10 @@ protected:
 	int HitSegment(CPoint point) const;
 	int Scale(int value) const { return MulDiv(value, (int)m_dpi, 96); }
 
-	CEdit m_search;
+	CEdit m_search;			// borderless, inside m_searchBox
+	CRect m_searchBox;		// the drawn field: magnifier, edit, frame
 	HFONT m_font;
+	HFONT m_iconFont;
 	UINT m_dpi;
 	std::vector<Segment> m_segments;
 	std::vector<CRect> m_segmentRects;	// filled while painting

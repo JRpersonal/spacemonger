@@ -83,6 +83,27 @@ inline const SM_Theme &SM_CurrentTheme()
 	return t;
 }
 
+// Icon font for toolbar and search glyphs: Segoe Fluent Icons (Windows 11),
+// else Segoe MDL2 Assets (Windows 10); both share the code points we use.
+inline const wchar_t *SM_IconFontFace()
+{
+	static const wchar_t *face = nullptr;
+	if (face == nullptr) {
+		LOGFONTW lf = {};
+		lf.lfCharSet = DEFAULT_CHARSET;
+		wcscpy_s(lf.lfFaceName, L"Segoe Fluent Icons");
+		bool found = false;
+		HDC dc = ::GetDC(NULL);
+		::EnumFontFamiliesExW(dc, &lf, [](const LOGFONTW *, const TEXTMETRICW *, DWORD, LPARAM param) -> int {
+			*(bool *)param = true;
+			return 0;
+		}, (LPARAM)&found, 0);
+		::ReleaseDC(NULL, dc);
+		face = found ? L"Segoe Fluent Icons" : L"Segoe MDL2 Assets";
+	}
+	return face;
+}
+
 // Dark title bar (Windows 10 20H1 and later; ignored elsewhere).
 inline void SM_ApplyThemeToFrame(HWND frame)
 {

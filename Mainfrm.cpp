@@ -8,6 +8,7 @@
 #include "Lang.h"
 #include "DpiUtil.h"
 #include <string>
+#include <math.h>
 
 /////////////////////////////////////////////////////////////////////////////
 // CMainFrame
@@ -464,35 +465,24 @@ const wchar_t kToolbarGlyphs[] = {
 };
 const int kToolbarImageCount = sizeof(kToolbarGlyphs) / sizeof(kToolbarGlyphs[0]);
 
-bool FontFaceInstalled(HDC dc, const wchar_t *face)
-{
-	LOGFONTW lf;
-	memset(&lf, 0, sizeof(lf));
-	lf.lfCharSet = DEFAULT_CHARSET;
-	wcscpy_s(lf.lfFaceName, face);
-	bool found = false;
-	::EnumFontFamiliesExW(dc, &lf, [](const LOGFONTW *, const TEXTMETRICW *, DWORD, LPARAM param) -> int {
-		*(bool *)param = true;
-		return 0;
-	}, (LPARAM)&found, 0);
-	return found;
-}
-
 // Renders the icon glyphs into a 32-bit image list. Glyphs are drawn black on
 // white with grayscale anti-aliasing; the gray level becomes the alpha of a
 // solid colour, so the icons blend cleanly onto any toolbar background.
-HIMAGELIST CreateGlyphImageList(int size, COLORREF color)
+// Light strokes on a dark background look thinner than dark on light, so
+// boldStrokes raises the edge coverage to keep the thin Fluent lines legible.
+HIMAGELIST CreateGlyphImageList(int size, COLORREF color, bool boldStrokes)
 {
 	HIMAGELIST list = ImageList_Create(size, size, ILC_COLOR32, kToolbarImageCount, 0);
 	if (list == NULL) return NULL;
 
 	HDC screen = ::GetDC(NULL);
 	HDC dc = ::CreateCompatibleDC(screen);
-	const wchar_t *face = FontFaceInstalled(dc, L"Segoe Fluent Icons")
-		? L"Segoe Fluent Icons" : L"Segoe MDL2 Assets";
 	HFONT font = ::CreateFontW(-size, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
 		DEFAULT_CHARSET, OUT_TT_PRECIS, CLIP_DEFAULT_PRECIS, ANTIALIASED_QUALITY,
-		DEFAULT_PITCH, face);
+		DEFAULT_PITCH, SM_IconFontFace());
+	BYTE coverage[256];
+	for (int i = 0; i < 256; ++i)
+		coverage[i] = boldStrokes ? (BYTE)(255.0 * pow(i / 255.0, 0.55) + 0.5) : (BYTE)i;
 
 	BITMAPINFO bi;
 	memset(&bi, 0, sizeof(bi));
@@ -519,7 +509,7 @@ HIMAGELIST CreateGlyphImageList(int size, COLORREF color)
 		BYTE r = GetRValue(color), g = GetGValue(color), b = GetBValue(color);
 		DWORD *px = (DWORD *)bits;
 		for (int i = 0; i < size * size * kToolbarImageCount; ++i) {
-			BYTE alpha = (BYTE)(255 - (px[i] & 0xFF));
+			BYTE alpha = coverage[255 - (px[i] & 0xFF)];
 			// Premultiplied BGRA.
 			px[i] = ((DWORD)alpha << 24) | ((DWORD)(r * alpha / 255) << 16)
 				| ((DWORD)(g * alpha / 255) << 8) | (DWORD)(b * alpha / 255);
@@ -592,8 +582,8 @@ void CMainToolBar::Rebuild(void)
 
 	int iconSize = MulDiv(16, (int)m_dpi, 96);
 	const SM_Theme &theme = SM_CurrentTheme();
-	HIMAGELIST images = CreateGlyphImageList(iconSize, theme.text);
-	HIMAGELIST disabled = CreateGlyphImageList(iconSize, theme.dark ? RGB(110, 110, 110) : theme.grayText);
+	HIMAGELIST images = CreateGlyphImageList(iconSize, theme.text, theme.dark);
+	HIMAGELIST disabled = CreateGlyphImageList(iconSize, theme.dark ? RGB(128, 128, 128) : theme.grayText, theme.dark);
 	::SendMessageW(m_hWnd, TB_SETIMAGELIST, 0, (LPARAM)images);
 	::SendMessageW(m_hWnd, TB_SETDISABLEDIMAGELIST, 0, (LPARAM)disabled);
 	if (m_images != NULL) ImageList_Destroy(m_images);
