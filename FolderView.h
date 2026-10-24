@@ -5,6 +5,8 @@
 #include "TipWnd.h"
 #include "TreemapLayout.h"
 #include <vector>
+#include <string>
+
 
 typedef TreemapNode CDisplayFolder;
 
@@ -16,7 +18,7 @@ public:
 	DECLARE_DYNCREATE(CFolderView)
 	virtual ~CFolderView();
 
-	void UpdateLiveScanLayout(AsyncScanEngine& engine, ui64 totalspace, ui64 freespace);
+	void UpdateLiveScanLayout(AsyncScanEngine& engine, ui64 totalspace, ui64 freespace, bool wholeVolume);
 	void ClearLiveScanLayout(void);
 	virtual void SetDocument(CFreeDoc *doc = NULL);
 	virtual void SetPalette(void);
@@ -35,6 +37,11 @@ public:
 		{ return rootfolder != NULL; }
 	inline bool IsAnythingSelected(void)
 		{ return selected != NULL; }
+	// Zoom In opens the selected folder or the folder of the selected file.
+	const TreemapNode *ZoomTarget(void);
+	const TreemapNode *FolderOf(const TreemapNode *cur);
+	void ShowInExplorer(const TreemapNode *cur);
+	inline bool CanZoomIn(void) { return ZoomTarget() != NULL; }
 	inline bool IsSelectedAFolder(void)
 		{ return selected != NULL && (selected->flags & 1) != 0; }
 	inline bool IsZoomFull(void)
@@ -79,12 +86,38 @@ protected:
 	void SetupInfoTip(const TreemapNode *cur);
 	void SetupNameTip(const TreemapNode *cur);
 	void SetNameTipFont(HFONT font);
+	TreemapConfig MakeLayoutConfig(void);
+	std::wstring FolderTitle(CDC *pDC, const TreemapNode *cur, int width);
+	// Live frames and the switch to the finished map blend over the picture
+	// on screen (ease-in-out) instead of replacing it.
+	void StartCrossfade(int durationMs);
+	afx_msg void OnTimer(UINT_PTR id);
+	afx_msg BOOL OnMouseWheel(UINT flags, short delta, CPoint point);
+	afx_msg void OnKeyDown(UINT key, UINT repeat, UINT flags);
+	enum { kAnimationTimer = 7, kCrossfadeMs = 120, kFinalCrossfadeMs = 200 };
+	bool m_xfadeActive;
+	DWORD m_xfadeStart;
+	int m_xfadeMs;
+	CBitmap m_prevFrame;
+	CSize m_prevFrameSize;
 
 protected:
 	CPalette m_palette;
 	CBrush black, white;
 	CFont minifont;
+	// Treemap text metrics for the current DPI and Windows text size: the
+	// classic 9 px Small Fonts at 100 %, a scaled TrueType face above that.
+	// m_lineStep is the classic 12 px line pitch scaled the same way, and also
+	// the folder title bar height including its top border.
+	int m_textHeight;
+	int m_lineStep;
+	int m_layoutDpi;
+	int m_titlePadX;	// left padding of folder titles
 	std::vector<HFONT> m_unicodeFonts;
+	CBitmap m_backBuffer;
+	CSize m_backBufferSize;
+	DWORD m_animStart;
+	UINT_PTR m_animTimer;
 	HFONT m_nameTipFontChoice;
 	CFolder *rootfolder;
 	std::vector<TreemapNode> m_layoutNodes;

@@ -27,8 +27,12 @@ enable_testing()
 set(SPACEMONGER_SOURCES
   AboutDialog.cpp
   ScanDetailsDialog.cpp
+  ScanStatusBar.cpp
   ScanAccounting.h
   AsyncScanEngine.cpp
+  CleanupDialog.cpp
+  CleanupScanner.cpp
+  SpaceReport.cpp
   DriveDialog.cpp
   DiskUsage.cpp
   Folder.cpp
@@ -37,6 +41,7 @@ set(SPACEMONGER_SOURCES
   FolderView.cpp
   Freedoc.cpp
   Freeview.cpp
+  lang_de.cpp
   lang_en.cpp
   lang_fr.cpp
   Mainfrm.cpp
@@ -67,6 +72,7 @@ set_source_files_properties(PathUtil.cpp PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
 set_source_files_properties(AsyncScanEngine.cpp PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
 set_source_files_properties(Folder.cpp PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
 set_source_files_properties(TreemapLayout.cpp PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
+set_source_files_properties(CleanupScanner.cpp SpaceReport.cpp PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
 set_target_properties(SpaceMonger PROPERTIES
   MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>"
 )
@@ -260,6 +266,44 @@ set_target_properties(Treemap_test PROPERTIES
   MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>"
 )
 add_test(NAME Treemap_test COMMAND Treemap_test)
+
+add_executable(Cleanup_test
+  tests/Cleanup_test.cpp
+  CleanupScanner.cpp
+  CleanupScanner.h
+  Folder.cpp
+  Folder.h
+  FolderEntryArrays.cpp
+  FolderEntryArrays.h
+  PathUtil.cpp
+  PathUtil.h
+  DiskUsage.cpp
+  DiskUsage.h
+)
+target_include_directories(Cleanup_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_compile_definitions(Cleanup_test PRIVATE WIN32 _WINDOWS UNICODE _UNICODE)
+target_compile_options(Cleanup_test PRIVATE /W3 /EHsc)
+set_target_properties(Cleanup_test PROPERTIES
+  MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>"
+)
+add_test(NAME Cleanup_test COMMAND Cleanup_test)
+
+add_executable(Report_test
+  tests/Report_test.cpp
+  SpaceReport.cpp
+  SpaceReport.h
+  Folder.cpp
+  Folder.h
+  FolderEntryArrays.cpp
+  FolderEntryArrays.h
+)
+target_include_directories(Report_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_compile_definitions(Report_test PRIVATE WIN32 _WINDOWS UNICODE _UNICODE)
+target_compile_options(Report_test PRIVATE /W3 /EHsc /utf-8)
+set_target_properties(Report_test PROPERTIES
+  MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>"
+)
+add_test(NAME Report_test COMMAND Report_test)
 
 # Bound concurrency regressions in CI as well as local CTest runs.
 set_tests_properties(AsyncScan_test DiskUsage_test PROPERTIES TIMEOUT 60)

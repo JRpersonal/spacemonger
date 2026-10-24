@@ -40,6 +40,9 @@ struct CCurrentSettings {
 	int infotip_delay;		// Tip delay, in milliseconds
 
 	char lang[4];			// Language, by two-letter code
+	BOOL hide_system;		// Hide Windows-owned root folders in the map
+	int color_scheme;		// 0 classic (depth), 1 muted, 2 Windows colours, 3 by file type
+	int theme;				// 0 follow Windows, 1 light, 2 dark
 
 	void Reset(void);		// Reset to default values
 	void Load(void);		// Retrieve current settings from Registry
@@ -66,8 +69,12 @@ public:
 	afx_msg void OnZoomFull(void);
 	afx_msg void OnZoomIn(void);
 	afx_msg void OnZoomOut(void);
+	afx_msg void OnHideSystem(void);
+	afx_msg void OnCleanup(void);
 	afx_msg void OnShowFree(void);
 	afx_msg void OnSettings(void);
+	afx_msg void OnRunAsAdmin(void);
+	afx_msg void OnExport(void);
 	afx_msg void OnFileProperties(void);
 	afx_msg void OnIgnoreUpdate(CCmdUI *ui);
 	//}}AFX_MSG
@@ -79,6 +86,14 @@ public:
 	CFreeView *m_view;
 
 	HBITMAP m_scan_animation[4];
+
+	// Scans a drive, folder or share (\\PC01\c$) and shows it.
+	void ScanPath(const CString &path);
+
+	// /report mode: no window, no message boxes; the exit code tells the
+	// result (see RunHeadlessReport in SpaceMonger.cpp).
+	bool m_headless;
+	int m_exitCode;
 
 	CCurrentSettings m_settings;
 };

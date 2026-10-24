@@ -8,8 +8,14 @@
 #include "PathUtil.h"
 #include "Lang.h"
 #include "UnicodeFontFallback.h"
+#include "DpiUtil.h"
+#include "TextFormat.h"
+#include "FileTypes.h"
+#include <unordered_map>
 
 IMPLEMENT_DYNCREATE(CFolderView, CFreeView)
+
+static CString GetSizeString(ui64 size, ui64 totalspace, BOOL percent);
 
 static COLORREF BoxColors[] = {
 	PALETTERGB(0xFF, 0x7F, 0x7F),
@@ -90,6 +96,15 @@ CFolderView::CFolderView()
 	showfreespace = 1;
 	lastcur = NULL;
 	m_nameTipFontChoice = NULL;
+	m_textHeight = 9;
+	m_lineStep = 12;
+	m_layoutDpi = 96;
+	m_titlePadX = 2;
+	m_animTimer = 0;
+	m_animStart = 0;
+	m_xfadeActive = false;
+	m_xfadeStart = 0;
+	m_xfadeMs = kCrossfadeMs;
 }
 
 CFolderView::~CFolderView()
@@ -110,29 +125,12 @@ BEGIN_MESSAGE_MAP(CFolderView, CFreeView)
 	ON_WM_MOUSEMOVE()
 	ON_WM_ERASEBKGND()
 	ON_WM_PAINT()
+	ON_WM_TIMER()
+	ON_WM_MOUSEWHEEL()
+	ON_WM_KEYDOWN()
 	//}}AFX_MSG_MAP
 	ON_UPDATE_COMMAND_UI_RANGE(100, 41000, OnIgnoreUpdate)
 END_MESSAGE_MAP()
-
-static UINT GetWindowDpi(HWND hwnd)
-{
-	typedef UINT (WINAPI *GetDpiForWindowProc)(HWND);
-	HMODULE hUser32 = GetModuleHandleA("user32.dll");
-	if (hUser32 != NULL) {
-		GetDpiForWindowProc pGetDpiForWindow = (GetDpiForWindowProc)GetProcAddress(hUser32, "GetDpiForWindow");
-		if (pGetDpiForWindow != NULL && hwnd != NULL) {
-			UINT dpi = pGetDpiForWindow(hwnd);
-			if (dpi != 0) return dpi;
-		}
-	}
-	HDC hdc = ::GetDC(hwnd);
-	UINT dpi = 96;
-	if (hdc != NULL) {
-		dpi = ::GetDeviceCaps(hdc, LOGPIXELSY);
-		::ReleaseDC(hwnd, hdc);
-	}
-	return (dpi != 0) ? dpi : 96;
-}
 
 void CFolderView::RecreateFonts(void)
 {
@@ -141,18 +139,63 @@ void CFolderView::RecreateFonts(void)
 		if (m_unicodeFonts[i] != NULL) ::DeleteObject(m_unicodeFonts[i]);
 	m_unicodeFonts.clear();
 
-	minifont.CreateFont(-9, 0, 0, 0, FW_NORMAL, 0, 0, 0, ANSI_CHARSET,
-		OUT_RASTER_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY,
-		VARIABLE_PITCH|FF_SWISS, L"Small Fonts");
+	UINT dpi = SM_GetWindowDpi(m_hWnd);
+	int textScale = SM_GetTextScalePercent();
+	m_layoutDpi = MulDiv((int)dpi, textScale, 100);
+	if (m_layoutDpi <= 96) {
+		// 100 %: the classic metrics, pixel for pixel.
+		m_textHeight = 9;
+		m_lineStep = 12;
+		m_titlePadX = 2;
+	} else {
+		// Scaled: a little larger than 9 px would give, with padding around
+		// folder titles so they don't sit on the box edges.
+		m_textHeight = MulDiv(10, m_layoutDpi, 96);
+		m_lineStep = m_textHeight + MulDiv(6, m_layoutDpi, 96);
+		m_titlePadX = MulDiv(4, m_layoutDpi, 96);
+	}
 
-	// Keep the classic bitmap face as the first choice. Check Unicode-capable
-	// system families against each name before using them as a fallback.
-	m_unicodeFonts = SM_CreateUnicodeFallbackFonts(-9);
+	if (m_textHeight <= 9) {
+		// 100 %: the classic bitmap face, pixel for pixel.
+		minifont.CreateFont(-9, 0, 0, 0, FW_NORMAL, 0, 0, 0, ANSI_CHARSET,
+			OUT_RASTER_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY,
+			VARIABLE_PITCH|FF_SWISS, L"Small Fonts");
+	} else {
+		// Small Fonts is a bitmap font and only exists in tiny sizes; scaling
+		// it up looks blocky, so larger sizes use the matching TrueType sans.
+		minifont.CreateFont(-m_textHeight, 0, 0, 0, FW_NORMAL, 0, 0, 0, DEFAULT_CHARSET,
+			OUT_TT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
+			VARIABLE_PITCH|FF_SWISS, L"Microsoft Sans Serif");
+	}
+
+	// Keep the classic face as the first choice. Check Unicode-capable system
+	// families against each name before using them as a fallback.
+	m_unicodeFonts = SM_CreateUnicodeFallbackFonts(-m_textHeight);
 
 	if (::IsWindow(m_nametipwnd.m_hWnd)) {
 		m_nameTipFontChoice = NULL;
 		SetNameTipFont((HFONT)minifont.GetSafeHandle());
 	}
+	// The info tip otherwise uses DEFAULT_GUI_FONT, which is never DPI-scaled.
+	if (::IsWindow(m_infotipwnd.m_hWnd)) {
+		HFONT tipFont = SM_CreateMessageFontForDpi(dpi);
+		if (tipFont != NULL)
+			::SendMessageW(m_infotipwnd.m_hWnd, WM_SETFONT, (WPARAM)tipFont, FALSE);
+	}
+}
+
+TreemapConfig CFolderView::MakeLayoutConfig(void)
+{
+	TreemapConfig config;
+	config.density = theApp.m_settings.density;
+	config.bias = theApp.m_settings.bias;
+	config.showFreeSpace = (showfreespace != 0);
+	config.dpi = m_layoutDpi;
+	config.titleHeight = m_lineStep;
+	CFolderTree *tree = (CFolderTree *)GetDocument();
+	if (tree != NULL && tree->wholeVolume) config.volumeRoot = tree->GetRoot();
+	config.hideSystem = theApp.m_settings.hide_system != 0;
+	return config;
 }
 
 void CFolderView::SetNameTipFont(HFONT font)
@@ -171,9 +214,20 @@ BOOL CFolderView::OnWndMsg(UINT message, WPARAM wParam, LPARAM lParam, LRESULT *
 {
 	if (message == 0x02E0 /* WM_DPICHANGED */) {
 		RecreateFonts();
+		OnSize(0, 0, 0);
 		Invalidate();
 		if (pResult != NULL) *pResult = 0;
 		return TRUE;
+	}
+	if (message == WM_SETTINGCHANGE) {
+		// Windows text size changed (or another metric): rebuild fonts and
+		// the layout, whose title bars and minimum boxes depend on them.
+		int oldHeight = m_textHeight;
+		RecreateFonts();
+		if (m_textHeight != oldHeight) {
+			OnSize(0, 0, 0);
+			Invalidate();
+		}
 	}
 
 	if (::IsWindow(m_infotipwnd.m_hWnd)) {
@@ -250,7 +304,70 @@ void CFolderView::OnDestroy()
 
 const TreemapNode *CFolderView::GetDisplayFolderFromPoint(const CPoint &point)
 {
-	return TreemapEngine::HitTestItem(m_layoutNodes, point.x, point.y);
+	return TreemapEngine::HitTestItem(m_layoutNodes, point.x, point.y, m_lineStep);
+}
+
+// Opens the item's folder in Explorer with the item selected.
+void CFolderView::ShowInExplorer(const TreemapNode *cur)
+{
+	if (cur == NULL || cur->source == NULL || cur->index == (ui32)-1) return;
+	std::wstring path = BuildItemPathW(cur);
+	PIDLIST_ABSOLUTE item = ILCreateFromPathW(path.c_str());
+	if (item != NULL) {
+		SHOpenFolderAndSelectItems(item, 0, NULL, 0);
+		ILFree(item);
+	}
+}
+
+// The folder box that directly contains a file box (NULL at the top level).
+const TreemapNode *CFolderView::FolderOf(const TreemapNode *cur)
+{
+	if (cur == NULL || cur->source == NULL) return NULL;
+	for (const auto &n : m_layoutNodes) {
+		if (n.IsFolder() && n.source != NULL && n.index != (ui32)-1
+			&& n.source->children[n.index] == cur->source) return &n;
+	}
+	return NULL;
+}
+
+// What Zoom In opens: the selected folder, or the folder of the selected file.
+const TreemapNode *CFolderView::ZoomTarget(void)
+{
+	if (selected == NULL) return NULL;
+	if (selected->IsFolder()) return selected;
+	return FolderOf(selected);
+}
+
+// Wheel forward: one level into the folder under the pointer; back: one up.
+BOOL CFolderView::OnMouseWheel(UINT flags, short delta, CPoint point)
+{
+	if (delta < 0) {
+		ZoomOut();
+		return TRUE;
+	}
+	ScreenToClient(&point);
+	for (const auto &n : m_layoutNodes) {
+		if (n.IsFolder() && n.depth == zoomlevel && point.x >= n.x && point.y >= n.y
+			&& point.x < n.x + n.w && point.y < n.y + n.h) {
+			ZoomIn(&n);
+			break;
+		}
+	}
+	return TRUE;
+}
+
+void CFolderView::OnKeyDown(UINT key, UINT repeat, UINT flags)
+{
+	CSpaceMonger *app = (CSpaceMonger *)AfxGetApp();
+	switch (key) {
+	case VK_RETURN: ZoomIn(ZoomTarget()); break;
+	case VK_BACK: ZoomOut(); break;
+	case VK_HOME: ZoomFull(); break;
+	case VK_DELETE: app->OnFileDelete(); break;
+	case VK_F5: app->OnFileRefresh(); break;
+	case 'E': if (::GetKeyState(VK_CONTROL) < 0) app->OnExport(); break;
+	default: CFreeView::OnKeyDown(key, repeat, flags); break;
+	}
 }
 
 const TreemapNode *CFolderView::GetContainerDisplayFolderFromPoint(const CPoint &point)
@@ -289,6 +406,7 @@ void CFolderView::HighlightPathAtPoint(const CPoint &point)
 
 void CFolderView::OnLButtonDown(UINT flags, CPoint point)
 {
+	SetFocus();	// keyboard shortcuts work after clicking into the map
 	const TreemapNode *cur = GetDisplayFolderFromPoint(point);
 	SelectFolder(cur);
 }
@@ -299,10 +417,8 @@ void CFolderView::OnLButtonDblClk(UINT flags, CPoint point)
 	if (cur != NULL) {
 		if (cur->flags & TREEMAP_FLAG_FOLDER)
 			ZoomIn(cur);
-		else {
-			CSpaceMonger *app = (CSpaceMonger *)AfxGetApp();
-			app->OnFileRun();
-		}
+		else
+			ShowInExplorer(cur);	// where is it? Explorer, with the file selected
 	}
 }
 
@@ -311,10 +427,21 @@ void CFolderView::OnMouseMove(UINT nFlags, CPoint point)
 	if (nFlags != 0) return;
 
 	const TreemapNode *cur = GetDisplayFolderFromPoint(point);
+	if (cur == NULL) {
+		// Special blocks are not selectable, but the unreadable-space block
+		// gets an explanatory info tip.
+		for (const auto &node : m_layoutNodes) {
+			if ((node.flags & TREEMAP_FLAG_UNAVAILABLE) && point.x > node.x && point.y > node.y
+				&& point.x < node.x + node.w && point.y < node.y + node.h) {
+				cur = &node;
+				break;
+			}
+		}
+	}
 
 	if (cur != lastcur) {
 		HighlightPathAtPoint(point);
-		if (theApp.m_settings.show_info_tips)
+		if (theApp.m_settings.show_info_tips || (cur != NULL && (cur->flags & TREEMAP_FLAG_UNAVAILABLE)))
 			SetupInfoTip(cur);
 		if (theApp.m_settings.show_name_tips)
 			SetupNameTip(cur);
@@ -322,34 +449,10 @@ void CFolderView::OnMouseMove(UINT nFlags, CPoint point)
 	}
 }
 
+// Sizes read like Explorer's ("105 GB", "1,5 MB"), in the user's locale.
 static void PrintFileSize(CString &string, ui64 size)
 {
-	CString sizestring;
-	ui32 displayfull, displayfractional;
-	const wchar_t *displaytype;
-
-	if (size < (ui64)(1024)) {
-		displayfull = (ui32)size;
-		displayfractional = 0;
-		displaytype = CurLang->bytes;
-	}
-	else if (size < (ui64)(1024*1024)) {
-		displayfull = (ui32)(size / (ui64)(1024));
-		displayfractional = (ui32)(10 * (size % (ui64)(1024)) / (ui64)(1024));
-		displaytype = CurLang->kb;
-	}
-	else if (size < (ui64)(1024*1024*1024)) {
-		displayfull = (ui32)(size / (ui64)(1024*1024));
-		displayfractional = (ui32)(10 * (size % (ui64)(1024*1024)) / (ui64)(1024*1024));
-		displaytype = CurLang->mb;
-	}
-	else {
-		displayfull = (ui32)(size / (ui64)(1024*1024*1024));
-		displayfractional = (ui32)(10 * (size % (ui64)(1024*1024*1024)) / (ui64)(1024*1024*1024));
-		displaytype = CurLang->gb;
-	}
-	sizestring.Format(CurLang->size_format, displayfull, displayfractional, displaytype);
-	string += sizestring;
+	string += SM_FormatBytes(size).c_str();
 }
 
 static void PrintDate(CString &string, ui64 time)
@@ -375,9 +478,36 @@ static void PrintDate(CString &string, ui64 time)
 	string += timebuf;
 }
 
+// Files and folders below a folder, for the info tip.
+static void CountTree(const CFolder *folder, ui64 &files, ui64 &folders)
+{
+	if (folder == NULL) return;
+	for (unsigned int i = 0; i < folder->cur; ++i) {
+		if (folder->children[i] != NULL) {
+			++folders;
+			CountTree(folder->children[i], files, folders);
+		}
+		else ++files;
+	}
+}
 void CFolderView::SetupInfoTip(const TreemapNode *cur)
 {
 	m_infotipwnd.EnableWindow(0);
+
+	if (cur != NULL && (cur->flags & TREEMAP_FLAG_UNAVAILABLE)
+		&& cur->source != NULL && cur->index != (ui32)-1) {
+		// Explain the estimate block instead of showing nothing for it.
+		CFolderTree *tree = (CFolderTree *)GetDocument();
+		CString text = CurLang->scan_unavailable_tip;
+		text += L"\n\n";
+		text += GetSizeString(cur->source->sizes[cur->index], tree != NULL ? tree->totalspace : 0, 0);
+		m_infotipwnd.SetIcon(NULL, 0);
+		m_infotipwnd.SetWindowText(text);
+		m_infotipwnd.AutoSize();
+		m_infotipwnd.EnableWindow(1);
+		m_infotipwnd.RedrawWindow();
+		return;
+	}
 
 	if (cur == NULL || cur->name == NULL || cur->IsSpecial())
 		return;
@@ -385,40 +515,75 @@ void CFolderView::SetupInfoTip(const TreemapNode *cur)
 	std::wstring widePath = BuildItemPathW(cur);
 	std::wstring path = BuildContainerPathW(cur);
 	CString string;
+	CFolderTree *tree = (CFolderTree *)GetDocument();
+	const int flags = theApp.m_settings.infotip_flags;
 
 	WIN32_FILE_ATTRIBUTE_DATA info;
 	memset(&info, 0, sizeof(info));
 	GetFileAttributesExW(widePath.c_str(), GetFileExInfoStandard, &info);
 
-	if (theApp.m_settings.infotip_flags & TIP_PATH)
-		string += path.c_str();
-	if (theApp.m_settings.infotip_flags & TIP_NAME)
-		string += cur->source->names[cur->index];
-	if (theApp.m_settings.infotip_flags & (TIP_NAME|TIP_PATH))
-		string += '\n';
-	if (theApp.m_settings.infotip_flags & TIP_SIZE)
-		PrintFileSize(string, cur->source->actualsizes[cur->index]);
-	if (theApp.m_settings.infotip_flags & TIP_ATTRIB) {
-		if ((theApp.m_settings.infotip_flags & TIP_SIZE)
-			&& info.dwFileAttributes != 0) string += L"  /  ";
-		if (info.dwFileAttributes & FILE_ATTRIBUTE_ARCHIVE)			string += L" ", string += CurLang->attribnames[0];
-		if (info.dwFileAttributes & FILE_ATTRIBUTE_COMPRESSED)		string += L" ", string += CurLang->attribnames[1];
-		if (info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)		string += L" ", string += CurLang->attribnames[2];
-		if (info.dwFileAttributes & FILE_ATTRIBUTE_ENCRYPTED)		string += L" ", string += CurLang->attribnames[3];
-		if (info.dwFileAttributes & FILE_ATTRIBUTE_HIDDEN)			string += L" ", string += CurLang->attribnames[4];
-		if (info.dwFileAttributes & FILE_ATTRIBUTE_OFFLINE)			string += L" ", string += CurLang->attribnames[5];
-		if (info.dwFileAttributes & FILE_ATTRIBUTE_READONLY)		string += L" ", string += CurLang->attribnames[6];
-		if (info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT)	string += L" ", string += CurLang->attribnames[7];
-		if (info.dwFileAttributes & FILE_ATTRIBUTE_SPARSE_FILE)		string += L" ", string += CurLang->attribnames[8];
-		if (info.dwFileAttributes & FILE_ATTRIBUTE_SYSTEM)			string += L" ", string += CurLang->attribnames[9];
-		if (info.dwFileAttributes & FILE_ATTRIBUTE_TEMPORARY)		string += L" ", string += CurLang->attribnames[10];
+	// Name first, then the full path of the item: where it really lives
+	// matters more than any other detail when deciding what to do with it.
+	string += cur->source->names[cur->index];
+	string += L'\n';
+	string += widePath.c_str();
+	string += L'\n';
+
+	// Size and its share of the drive: the number that matters here.
+	if (flags & TIP_SIZE) {
+		ui64 size = cur->source->actualsizes[cur->index];
+		ui64 total = tree != NULL && tree->totalspace > 0 ? tree->totalspace : 1;
+		int permille = (int)((size * (ui64)1000) / total);
+		CString line;
+		line.Format(CurLang->tip_drive_share_format, SM_FormatBytes(size).c_str(), permille / 10, permille % 10);
+		string += line;
+		string += L'\n';
 	}
-	if (theApp.m_settings.infotip_flags & (TIP_ATTRIB|TIP_SIZE))
-		string += '\n';
-	if (theApp.m_settings.infotip_flags & TIP_DATE) {
-		PrintDate(string, cur->source->times[cur->index]);
-		string += '\n';
+
+	// Folders: how much is inside.
+	if ((cur->flags & TREEMAP_FLAG_FOLDER) && cur->source->children[cur->index] != NULL) {
+		ui64 files = 0, folders = 0;
+		CountTree(cur->source->children[cur->index], files, folders);
+		CString line;
+		line.Format(CurLang->tip_contents_format, SM_FormatCount(files).c_str(), SM_FormatCount(folders).c_str());
+		string += line;
+		string += L'\n';
 	}
+
+	if ((flags & TIP_DATE) && cur->source->times[cur->index] != 0) {
+		CString date;
+		PrintDate(date, cur->source->times[cur->index]);
+		CString line;
+		line.Format(CurLang->tip_modified_format, (LPCWSTR)date);
+		string += line;
+		string += L'\n';
+	}
+
+	if (flags & TIP_ATTRIB) {
+		CString attributes;
+		if (info.dwFileAttributes & FILE_ATTRIBUTE_ARCHIVE)			attributes += L" ", attributes += CurLang->attribnames[0];
+		if (info.dwFileAttributes & FILE_ATTRIBUTE_COMPRESSED)		attributes += L" ", attributes += CurLang->attribnames[1];
+		if (info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)		attributes += L" ", attributes += CurLang->attribnames[2];
+		if (info.dwFileAttributes & FILE_ATTRIBUTE_ENCRYPTED)		attributes += L" ", attributes += CurLang->attribnames[3];
+		if (info.dwFileAttributes & FILE_ATTRIBUTE_HIDDEN)			attributes += L" ", attributes += CurLang->attribnames[4];
+		if (info.dwFileAttributes & FILE_ATTRIBUTE_OFFLINE)			attributes += L" ", attributes += CurLang->attribnames[5];
+		if (info.dwFileAttributes & FILE_ATTRIBUTE_READONLY)		attributes += L" ", attributes += CurLang->attribnames[6];
+		if (info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT)	attributes += L" ", attributes += CurLang->attribnames[7];
+		if (info.dwFileAttributes & FILE_ATTRIBUTE_SPARSE_FILE)		attributes += L" ", attributes += CurLang->attribnames[8];
+		if (info.dwFileAttributes & FILE_ATTRIBUTE_SYSTEM)			attributes += L" ", attributes += CurLang->attribnames[9];
+		if (info.dwFileAttributes & FILE_ATTRIBUTE_TEMPORARY)		attributes += L" ", attributes += CurLang->attribnames[10];
+		attributes.Trim();
+		if (!attributes.IsEmpty()) {
+			string += attributes;
+			string += L'\n';
+		}
+	}
+
+	if (cur->flags & TREEMAP_FLAG_SYSTEM) {
+		string += L'\n';
+		string += CurLang->tip_system_note;
+	}
+	string.TrimRight(L'\n');
 	if (theApp.m_settings.infotip_flags & TIP_ICON) {
 		SHFILEINFOW fileinfo;
 		memset(&fileinfo, 0, sizeof(SHFILEINFOW));
@@ -467,8 +632,8 @@ void CFolderView::SetupNameTip(const TreemapNode *cur)
 		return;
 	}
 
-	if (!(cur->flags & 1) && h >= 36 && w >= 48)
-		ty -= 12;
+	if (!(cur->flags & 1) && h >= 3 * m_lineStep && w >= 4 * m_lineStep)
+		ty -= m_lineStep;
 
 	if (selected == cur) {
 		m_nametipwnd.SetBgColor(RGB(0,0,0));
@@ -531,15 +696,13 @@ void CFolderView::OnRButtonUp(UINT flags, CPoint point)
 	::AddMenuEntry(menu, ID_VIEW_ZOOM_OUT, CurLang->zoomout, 0, cur == NULL, 0);
 	::AddMenuEntry(menu, ID_VIEW_ZOOM_FULL, CurLang->zoomfull, 0, cur == NULL, 0);
 	::AddMenuEntry(menu);
-	::AddMenuEntry(menu, ID_FILE_RUN, CurLang->run, 0, cur == NULL, (cur != NULL) && (cur->flags & 1) == 0);
+	::AddMenuEntry(menu, ID_FILE_RUN, CurLang->run, 0, cur == NULL, (cur != NULL) && (cur->flags & 1) == 0);	// Show in Explorer
 	::AddMenuEntry(menu, ID_FILE_DELETE, CurLang->del, 0,
 		!SM_CanDeleteSelection(app->m_settings.disable_delete, cur != NULL), 0);
 	::AddMenuEntry(menu);
-	::AddMenuEntry(menu, ID_FILE_OPEN, CurLang->opendrive, 0, 0, 0);
-	::AddMenuEntry(menu, ID_FILE_REFRESH, CurLang->rescandrive, 0, 0, 0);
-	::AddMenuEntry(menu, ID_VIEW_FREE, CurLang->showfreespace, showfreespace, 0, 0);
+	::AddMenuEntry(menu, ID_FILE_PROPERTIES, CurLang->properties, 0, cur == NULL, 0);
 	::AddMenuEntry(menu);
-	::AddMenuEntry(menu, ID_FILE_PROPERTIES, CurLang->properties, 0, 0, 0);
+	::AddMenuEntry(menu, ID_FILE_EXPORT, CurLang->export_list, 0, !IsAnythingOpen(), 0);
 	::TrackPopupMenuEx(menu, TPM_LEFTALIGN|TPM_LEFTBUTTON|TPM_RIGHTBUTTON,
 		point.x, point.y, theApp.m_mainframe->m_hWnd, NULL);
 	::DestroyMenu(menu);
@@ -571,32 +734,8 @@ static CString GetSizeString(ui64 size, ui64 totalspace, BOOL percent)
 		result.Format(CurLang->percent_format, (ui32)size / 10, (ui32)size % 10);
 	}
 	else {
-		ui32 displayfull, displayfractional;
-		const wchar_t *displaytype;
-
-		if (size < (ui64)(1024)) {
-			displayfull = (ui32)size;
-			displayfractional = 0;
-			displaytype = CurLang->bytes;
-		}
-		else if (size < (ui64)(1024*1024)) {
-			displayfull = (ui32)(size / (ui64)(1024));
-			displayfractional = (ui32)(10 * (size % (ui64)(1024)) / (ui64)(1024));
-			displaytype = CurLang->kb;
-		}
-		else if (size < (ui64)(1024*1024*1024)) {
-			displayfull = (ui32)(size / (ui64)(1024*1024));
-			displayfractional = (ui32)(10 * (size % (ui64)(1024*1024)) / (ui64)(1024*1024));
-			displaytype = CurLang->mb;
-		}
-		else {
-			displayfull = (ui32)(size / (ui64)(1024*1024*1024));
-			displayfractional = (ui32)(10 * (size % (ui64)(1024*1024*1024)) / (ui64)(1024*1024*1024));
-			displaytype = CurLang->gb;
-		}
-		result.Format(CurLang->size_format, displayfull, displayfractional, displaytype);
+		result = SM_FormatBytes(size).c_str();
 	}
-
 	return result;
 }
 
@@ -686,6 +825,20 @@ std::wstring CFolderView::BuildItemPathW(const TreemapNode *folder)
 	return PathUtil::BuildWidePath(tree == NULL ? L"" : tree->m_path, relativePath, leafName);
 }
 
+// A folder's title: its name, and its size in brackets when that still fits
+// ("Users (248 GB)"). Files and boxes without size data show the bare name.
+std::wstring CFolderView::FolderTitle(CDC *pDC, const TreemapNode *cur, int width)
+{
+	std::wstring name = cur->name != NULL ? cur->name : L"";
+	if (!cur->IsFolder() || cur->source == NULL || cur->index == (ui32)-1) return name;
+	std::wstring withSize = name + L"  (" + SM_FormatBytes(cur->source->sizes[cur->index]) + L")";
+	SIZE size;
+	if (::GetTextExtentPoint32W(pDC->GetSafeHdc(), withSize.c_str(), (int)withSize.size(), &size)
+		&& size.cx <= width)
+		return withSize;
+	return name;
+}
+
 void CFolderView::OnDraw(CDC *pDC)
 {
 	pDC->SelectObject(&minifont);
@@ -697,9 +850,65 @@ void CFolderView::OnDraw(CDC *pDC)
 	DrawBox(pDC->m_hDC, ColorFlat, 0, 0, m_width, m_height);
 	FillBox(pDC->m_hDC, ColorFlat, 1, 1, m_width-2, m_height-2);
 
-	for (const auto &cur : m_layoutNodes) {
+	for (const auto &cur : m_layoutNodes)
 		MinimalDrawDisplayFolder(pDC, &cur, selected == &cur);
+
+	// The selection outline goes on top of everything (children would
+	// otherwise cover a folder's frame): a thick black frame, as in the
+	// classic look, with a white inner edge so it also stands out against
+	// dark neighbours.
+	if (selected != NULL) {
+		int t = max(3, MulDiv(3, (int)SM_GetWindowDpi(m_hWnd), 96));
+		int x = selected->x, y = selected->y, w = selected->w + 1, h = selected->h + 1;
+		if (w > 2 * t + 2 && h > 2 * t + 2) {
+			HBRUSH frame = (HBRUSH)::GetStockObject(BLACK_BRUSH);
+			HBRUSH edge = (HBRUSH)::GetStockObject(WHITE_BRUSH);
+			FillBox(pDC->m_hDC, frame, x, y, w, t);
+			FillBox(pDC->m_hDC, frame, x, y + h - t, w, t);
+			FillBox(pDC->m_hDC, frame, x, y, t, h);
+			FillBox(pDC->m_hDC, frame, x + w - t, y, t, h);
+			DrawBox(pDC->m_hDC, edge, x + t, y + t, w - 2 * t, h - 2 * t);
+
+			// The frame covers the folder title; write it again, white on black.
+			if (selected->IsFolder() && selected->name != NULL) {
+				int len = (int)wcslen(selected->name);
+				HFONT font = SM_SelectFontForText(pDC->GetSafeHdc(),
+					(HFONT)minifont.GetSafeHandle(), m_unicodeFonts, selected->name, len);
+				HGDIOBJ oldFont = ::SelectObject(pDC->GetSafeHdc(), font);
+				std::wstring label = FolderTitle(pDC, selected, w - 2 * max(m_titlePadX, t + 2));
+				SIZE size;
+				::GetTextExtentPoint32W(pDC->GetSafeHdc(), selected->name, len, &size);
+				int bar = max(m_lineStep, t + size.cy + 2);
+				FillBox(pDC->m_hDC, frame, x, y, w, min(h, bar));
+				CRgn clip;
+				clip.CreateRectRgn(x + t, y, x + w - t, y + min(h, bar));
+				pDC->SelectClipRgn(&clip);
+				COLORREF oldColor = pDC->SetTextColor(RGB(255, 255, 255));
+				int tx = x + max(m_titlePadX, t + 2);
+				int ty = y + max(0, (min(h, bar) - size.cy) / 2);
+				::TextOutW(pDC->GetSafeHdc(), tx, ty, label.c_str(), (int)label.size());
+				pDC->SetTextColor(oldColor);
+				pDC->SelectClipRgn(NULL);
+				::SelectObject(pDC->GetSafeHdc(), oldFont);
+			}
+		}
 	}
+}
+
+// The Muted scheme: the classic palette, halfway to white.
+static COLORREF SoftColor(COLORREF c)
+{
+	return RGB((GetRValue(c) + 255) / 2, (GetGValue(c) + 255) / 2, (GetBValue(c) + 255) / 2);
+}
+
+// System content (SystemPaths.h) is drawn washed out, so the eye goes to the
+// folders where the user can actually free space.
+static COLORREF MuteColor(COLORREF c)
+{
+	const int keep = 30, base = 228;
+	return RGB((GetRValue(c) * keep + base * (100 - keep)) / 100,
+		(GetGValue(c) * keep + base * (100 - keep)) / 100,
+		(GetBValue(c) * keep + base * (100 - keep)) / 100);
 }
 
 void CFolderView::MinimalDrawDisplayFolder(CDC *pDC, const TreemapNode *cur, BOOL sel)
@@ -708,39 +917,70 @@ void CFolderView::MinimalDrawDisplayFolder(CDC *pDC, const TreemapNode *cur, BOO
 
 	x = cur->x, y = cur->y, w = cur->w + 1, h = cur->h + 1;
 
-	if (cur->depth != -1)
-		DrawBox(pDC->m_hDC, black, x, y, w, h);
+	const bool muted = (cur->flags & TREEMAP_FLAG_SYSTEM) != 0;
+	if (cur->depth != -1) {
+		if (muted) {
+			CBrush outline;
+			outline.CreateSolidBrush(RGB(170, 170, 170));
+			DrawBox(pDC->m_hDC, outline, x, y, w, h);
+		}
+		else DrawBox(pDC->m_hDC, black, x, y, w, h);
+	}
 
 	if (w > 2 && h > 2) {
 		COLORREF color, bright, dark;
 		CBrush brush, bbrush, dbrush;
-		int colortype = (cur->flags & 1) ? theApp.m_settings.folder_color
-			: theApp.m_settings.file_color;
+		const int scheme = theApp.m_settings.color_scheme;
 
 		if (sel && !(cur->flags & 2))
-			color = bright = dark = RGB(0,0,0);
+			color = bright = dark = RGB(0, 0, 0);
 		else if (cur->depth != -1) {
-			if (colortype == 0) {
-				color = BoxColors[cur->depth & 7];
-				bright = BoxColors[(cur->depth & 7) + 8];
-				dark = BoxColors[(cur->depth & 7) + 16];
-			}
-			else if (colortype == 1) {
+			if (scheme == 2) {
+				// Windows colours: plain dialog-face boxes.
 				color = GetSysColor(COLOR_3DFACE);
 				bright = GetSysColor(COLOR_3DHILIGHT);
 				dark = GetSysColor(COLOR_3DSHADOW);
 			}
+			else if (scheme == 3 && !(cur->flags & 1)) {
+				// By file type: files coloured by what they are.
+				const wchar_t *name = (cur->source != NULL && cur->index != (ui32)-1)
+					? cur->source->names[cur->index] : cur->name;
+				SM_FileTypeColors(SM_ClassifyFileType(name), color, bright, dark);
+			}
+			else if (scheme == 3) {
+				// ...with folders kept neutral, so the types stand out.
+				int shade = 236 - (cur->depth % 4) * 8;
+				color = RGB(shade, shade, shade);
+				bright = RGB(250, 250, 250);
+				dark = RGB(shade - 40, shade - 40, shade - 40);
+			}
 			else {
-				color = FixedColors[colortype-2];
-				bright = FixedColors[colortype-2 + 10];
-				dark = FixedColors[colortype-2 + 20];
+				color = BoxColors[cur->depth & 7];
+				bright = BoxColors[(cur->depth & 7) + 8];
+				dark = BoxColors[(cur->depth & 7) + 16];
+				if (scheme == 1) {
+					// Muted: the classic palette, softened.
+					color = SoftColor(color);
+					bright = SoftColor(bright);
+					dark = SoftColor(dark);
+				}
 			}
 			if (theApp.m_settings.rollover_box) {
 				if (cur->flags & 4) dark = color, color = bright, bright = RGB(255,255,255);
 				else bright = color, color = dark;
 			}
 		}
-		else color = bright = dark = GetSysColor(COLOR_3DFACE);
+		else if (cur->flags & TREEMAP_FLAG_UNAVAILABLE)
+			color = bright = dark = RGB(200, 200, 200);
+		else if (cur->flags & TREEMAP_FLAG_PENDING)
+			color = bright = dark = GetSysColor(COLOR_3DFACE);
+		else color = bright = dark = GetSysColor(COLOR_WINDOW);	// free space: empty, light
+
+		if (muted && !sel) {
+			color = MuteColor(color);
+			bright = MuteColor(bright);
+			dark = MuteColor(dark);
+		}
 
 		brush.CreateSolidBrush(color);
 		bbrush.CreateSolidBrush(bright);
@@ -748,19 +988,72 @@ void CFolderView::MinimalDrawDisplayFolder(CDC *pDC, const TreemapNode *cur, BOO
 
 		DrawDualBox(pDC->m_hDC, bbrush, dbrush, x + 1, y + 1, w - 2, h - 2);
 		if (cur->flags & 1) {
+			const int border = TREEMAP_FOLDER_BORDER;
 			DrawBox(pDC->m_hDC, brush, x + 2, y + 2, w - 4, h - 4);
-			FillBox(pDC->m_hDC, brush, x + 3, y + 3, w - 6, 9);
-			if (h > 15 && w > 6) {
-				FillBox(pDC->m_hDC, ColorFlat, x + 3, y + 12, w - 6, h - 15);
+			FillBox(pDC->m_hDC, brush, x + border, y + border, w - 2 * border, m_lineStep - border);
+			if (h > m_lineStep + border && w > 2 * border) {
+				FillBox(pDC->m_hDC, ColorFlat, x + border, y + m_lineStep,
+					w - 2 * border, h - m_lineStep - border);
+				if (cur->flags & TREEMAP_FLAG_SCANNING) {
+					// Still being read: a light hatch until its contents arrive.
+					CBrush hatch;
+					hatch.CreateHatchBrush(HS_BDIAGONAL, RGB(205, 205, 205));
+					COLORREF oldBk = pDC->SetBkColor(GetSysColor(COLOR_3DFACE));
+					int oldMode = pDC->SetBkMode(OPAQUE);
+					FillBox(pDC->m_hDC, hatch, x + border, y + m_lineStep,
+						w - 2 * border, h - m_lineStep - border);
+					pDC->SetBkMode(oldMode);
+					pDC->SetBkColor(oldBk);
+				}
 			}
 		}
 		else FillBox(pDC->m_hDC, brush, x + 2, y + 2, w - 4, h - 4);
+
+		if (cur->depth == -1) {
+			// Free, unreadable and pending blocks get a visible edge; the
+			// unreadable one is hatched so it never reads as free space.
+			CBrush edge;
+			edge.CreateSolidBrush(GetSysColor(COLOR_3DSHADOW));
+			DrawBox(pDC->m_hDC, edge, x, y, w, h);
+			if ((cur->flags & TREEMAP_FLAG_UNAVAILABLE) && w > 4 && h > 4) {
+				CBrush hatch;
+				hatch.CreateHatchBrush(HS_BDIAGONAL, RGB(150, 150, 150));
+				COLORREF oldBk = pDC->SetBkColor(color);
+				int oldMode = pDC->SetBkMode(OPAQUE);
+				FillBox(pDC->m_hDC, hatch, x + 1, y + 1, w - 2, h - 2);
+				pDC->SetBkMode(oldMode);
+				pDC->SetBkColor(oldBk);
+			}
+		}
+	}
+
+	if (cur->flags & TREEMAP_FLAG_PENDING) {
+		// Live scan: used space that has not been scanned yet. Hatch it so it
+		// reads as "still to come" next to the solid free-space block.
+		if (w > 4 && h > 4) {
+			CBrush hatch;
+			hatch.CreateHatchBrush(HS_BDIAGONAL, GetSysColor(COLOR_3DSHADOW));
+			COLORREF oldBk = pDC->SetBkColor(GetSysColor(COLOR_3DFACE));
+			int oldMode = pDC->SetBkMode(OPAQUE);
+			FillBox(pDC->m_hDC, hatch, x + 2, y + 2, w - 4, h - 4);
+			pDC->SetBkMode(oldMode);
+			pDC->SetBkColor(oldBk);
+		}
+		CSize labelSize = pDC->GetTextExtent(CurLang->scanning);
+		if (labelSize.cx <= w - 4 && labelSize.cy <= h - 4) {
+
+			int savedClip = pDC->SaveDC();
+			pDC->IntersectClipRect(x, y, x + w, y + h);	// nests inside a caller's clip
+			pDC->TextOut(x + (w - labelSize.cx) / 2, y + (h - labelSize.cy) / 2, CurLang->scanning);
+			pDC->RestoreDC(savedClip);
+		}
+		return;
 	}
 
 	if (cur->name != NULL) {
-		CRgn rgn;
-		rgn.CreateRectRgn(x, y, x + w, y + h);
-		pDC->SelectClipRgn(&rgn);
+
+		int savedClip = pDC->SaveDC();
+		pDC->IntersectClipRect(x, y, x + w, y + h);	// nests inside a caller's clip
 
 		int len = (int)wcslen(cur->name);
 		CSize size;
@@ -771,9 +1064,13 @@ void CFolderView::MinimalDrawDisplayFolder(CDC *pDC, const TreemapNode *cur, BOO
 		HGDIOBJ oldNameFont = ::SelectObject(pDC->GetSafeHdc(), nameFont);
 		::GetTextExtentPoint32W(pDC->GetSafeHdc(), cur->name, len, &size);
 		::SelectObject(pDC->GetSafeHdc(), oldNameFont);
-		if (size.cx > w - 2 || (cur->flags & 1)) tx = x + 2;
+		if (size.cx > w - 2 || (cur->flags & 1)) tx = x + m_titlePadX;
 		else tx = x + (w - size.cx) / 2;
-		if (size.cy > h - 2 || (cur->flags & 1)) ty = y + 1;
+		// Folder titles: vertically centred in the title bar below the frame.
+		if ((cur->flags & 1) && m_textHeight > 9)
+			ty = y + TREEMAP_FOLDER_BORDER + max(0, (m_lineStep - TREEMAP_FOLDER_BORDER - size.cy) / 2);
+		else if (cur->flags & 1) ty = y + 1;
+		else if (size.cy > h - 2) ty = y + 1;
 		else ty = y + (h - size.cy) / 2;
 
 		if ((cur->flags & TREEMAP_FLAG_SPECIAL) && !(cur->flags & TREEMAP_FLAG_UNAVAILABLE)) {
@@ -786,48 +1083,45 @@ void CFolderView::MinimalDrawDisplayFolder(CDC *pDC, const TreemapNode *cur, BOO
 				if (ts <= 1) ts = 1;
 				si32 freepercent = (si32)(ft->freespace * (ui64)1000 / ts);
 				string.Format(CurLang->freespace_format, freepercent / 10, freepercent % 10);
-				size = pDC->GetTextExtent(string);
-				if (size.cx > w-2) tx = x + 2;
-				else tx = x + (w - size.cx) / 2;
-				pDC->TextOut(tx, ty-18, string);
-
-				string = GetSizeString(ft->freespace, ft->totalspace, 0) + L" " + CurLang->free;
-				pDC->TextOut(tx, ty-6, string);
-				
-				string.Format(L"%s  %u", CurLang->files_total, ft->numfiles);
-				pDC->TextOut(tx, ty+6, string);
-				
-				string.Format(L"%s  %u", CurLang->folders_total, ft->numfolders);
-				pDC->TextOut(tx, ty+15, string);
+				// Two centred lines: the share free, and how much that is of the
+				// drive. File and folder counts tell nobody anything here.
+				const int step = m_lineStep;
+				CString lines[2] = {
+					string,
+					CString(SM_FormatBytes(ft->freespace).c_str()) + L" " + CurLang->free + L" / "
+						+ SM_FormatBytes(ft->totalspace).c_str() + L" " + CurLang->total,
+				};
+				for (int line = 0; line < 2; ++line) {
+					size = pDC->GetTextExtent(lines[line]);
+					tx = size.cx > w - 2 ? x + 2 : x + (w - size.cx) / 2;
+					pDC->TextOut(tx, ty - step + line * step, lines[line]);
+				}
 			}
 		}
 		else {
 			if (sel) pDC->SetTextColor(RGB(0xFF,0xFF,0xFF));
+			else if (muted) pDC->SetTextColor(RGB(120, 120, 120));
 			if (cur->flags & TREEMAP_FLAG_UNAVAILABLE) {
 				// The block is an estimate, so show its label and size without
-				// treating it as a real file path.
-				const wchar_t *label = cur->name + 1;
-				int labelLen = (int)wcslen(label);
-				CSize labelSize;
-				HFONT labelFont = SM_SelectFontForText(pDC->GetSafeHdc(),
-					(HFONT)minifont.GetSafeHandle(), m_unicodeFonts, label, labelLen);
-				HGDIOBJ oldLabelFont = ::SelectObject(pDC->GetSafeHdc(), labelFont);
-				::GetTextExtentPoint32W(pDC->GetSafeHdc(), label, labelLen, &labelSize);
-				int labelX = labelSize.cx > w - 2 ? x + 2 : x + (w - labelSize.cx) / 2;
-				::TextOutW(pDC->GetSafeHdc(), labelX, ty - 6, label, labelLen);
-				::SelectObject(pDC->GetSafeHdc(), oldLabelFont);
-
+				// treating it as a real file path. Word-wrapped and centred:
+				// the block is often narrow.
+				CString text = cur->name + 1;
 				CFolderTree *ft = (CFolderTree *)GetDocument();
-				if (ft != NULL && cur->source != NULL && cur->index != (ui32)-1) {
-					CString sizeString = GetSizeString(cur->source->sizes[cur->index], ft->totalspace, 0);
-					size = pDC->GetTextExtent(sizeString);
-					int sizeX = size.cx > w - 2 ? x + 2 : x + (w - size.cx) / 2;
-					pDC->TextOut(sizeX, ty + 6, sizeString);
-				}
-				pDC->SelectClipRgn(NULL);
+				if (ft != NULL && cur->source != NULL && cur->index != (ui32)-1)
+					text += L"\n" + GetSizeString(cur->source->sizes[cur->index], ft->totalspace, 0);
+				CRect box(x + 4, y + 4, x + w - 4, y + h - 4);
+				CRect measure = box;
+				pDC->DrawText(text, &measure, DT_CENTER | DT_WORDBREAK | DT_NOPREFIX | DT_CALCRECT);
+				int offset = max(0, (box.Height() - measure.Height()) / 2);
+				box.top += offset;
+				pDC->SetTextColor(RGB(64, 64, 64));
+				pDC->DrawText(text, &box, DT_CENTER | DT_WORDBREAK | DT_NOPREFIX);
+				pDC->SetTextColor(RGB(0, 0, 0));
+				pDC->RestoreDC(savedClip);
 				return;
 			}
-			if (!(cur->flags & 1) && h >= 36 && w >= 48 && cur->source != NULL && cur->index != (ui32)-1) {
+			if (!(cur->flags & 1) && h >= 3 * m_lineStep && w >= 4 * m_lineStep
+				&& cur->source != NULL && cur->index != (ui32)-1) {
 				// Enough room (probably) for the date and file size
 				CString string;
 				CSize size;
@@ -841,16 +1135,17 @@ void CFolderView::MinimalDrawDisplayFolder(CDC *pDC, const TreemapNode *cur, BOO
 				PrintDate(string, cur->source->times[cur->index]);
 				size = pDC->GetTextExtent(string);
 				if (size.cx > w-2)
-					pDC->TextOut(x+2, ty+11, string);
-				else pDC->TextOut(x+(w-size.cx)/2, ty+11, string);
-				ty -= 12;
+					pDC->TextOut(x+2, ty + m_lineStep - 1, string);
+				else pDC->TextOut(x+(w-size.cx)/2, ty + m_lineStep - 1, string);
+				ty -= m_lineStep;
 			}
 			oldNameFont = ::SelectObject(pDC->GetSafeHdc(), nameFont);
-			::TextOutW(pDC->GetSafeHdc(), tx, ty, cur->name, len);
+			std::wstring label = FolderTitle(pDC, cur, w - 2 * m_titlePadX);
+			::TextOutW(pDC->GetSafeHdc(), tx, ty, label.c_str(), (int)label.size());
 			::SelectObject(pDC->GetSafeHdc(), oldNameFont);
-			if (sel) pDC->SetTextColor(RGB(0,0,0));
+			if (sel || muted) pDC->SetTextColor(RGB(0,0,0));
 		}
-		pDC->SelectClipRgn(NULL);
+		pDC->RestoreDC(savedClip);
 	}
 }
 
@@ -869,19 +1164,38 @@ void CFolderView::OnPaint()
 	int h = rect.Height();
 	if (w <= 0 || h <= 0) return;
 
+	// The back buffer is kept between paints: at 4K, allocating a new one
+	// for every animation frame costs more than drawing the map.
+	if (m_backBuffer.m_hObject == NULL || m_backBufferSize.cx != w || m_backBufferSize.cy != h) {
+		if (m_backBuffer.m_hObject != NULL) m_backBuffer.DeleteObject();
+		m_backBuffer.CreateCompatibleBitmap(&dc, w, h);
+		m_backBufferSize = CSize(w, h);
+	}
 	CDC memDC;
 	memDC.CreateCompatibleDC(&dc);
-	CBitmap bitmap;
-	bitmap.CreateCompatibleBitmap(&dc, w, h);
-	CBitmap *oldBitmap = memDC.SelectObject(&bitmap);
+	CBitmap *oldBitmap = memDC.SelectObject(&m_backBuffer);
 
 	OnDraw(&memDC);
+
+	if (m_xfadeActive && m_prevFrame.m_hObject != NULL && m_prevFrameSize == CSize(w, h)) {
+		// Cross-fade: the previous picture on top, fading out (ease-in-out).
+		double t = (double)(::GetTickCount() - m_xfadeStart) / m_xfadeMs;
+		if (t < 1.0) {
+			double e = 1.0 - (1.0 - t) * (1.0 - t);	// ease-out: change shows at once, settles softly
+			CDC prev;
+			prev.CreateCompatibleDC(&dc);
+			CBitmap *oldPrev = prev.SelectObject(&m_prevFrame);
+			BLENDFUNCTION blend = { AC_SRC_OVER, 0, (BYTE)(255.0 * (1.0 - e)), 0 };
+			::AlphaBlend(memDC.m_hDC, 0, 0, w, h, prev.m_hDC, 0, 0, w, h, blend);
+			prev.SelectObject(oldPrev);
+		}
+	}
 
 	dc.BitBlt(0, 0, w, h, &memDC, 0, 0, SRCCOPY);
 	memDC.SelectObject(oldBitmap);
 }
 
-void CFolderView::UpdateLiveScanLayout(AsyncScanEngine& engine, ui64 totalspace, ui64 freespace)
+void CFolderView::UpdateLiveScanLayout(AsyncScanEngine& engine, ui64 totalspace, ui64 freespace, bool wholeVolume)
 {
 	CRect rect;
 	GetClientRect(&rect);
@@ -890,22 +1204,68 @@ void CFolderView::UpdateLiveScanLayout(AsyncScanEngine& engine, ui64 totalspace,
 
 	if (m_width <= 0 || m_height <= 0) return;
 
-	TreemapConfig config;
-	config.density = theApp.m_settings.density;
-	config.bias = theApp.m_settings.bias;
-	config.showFreeSpace = (showfreespace != 0);
-	config.dpi = (int)GetWindowDpi(m_hWnd);
+	TreemapConfig config = MakeLayoutConfig();
 
 	selected = NULL;
 	lastcur = NULL;
 
-	engine.GenerateLiveLayout(m_width - 1, m_height - 1, totalspace, freespace, config, m_layoutNodes, m_liveNameStorage);
+	StartCrossfade(kCrossfadeMs);
+	engine.GenerateLiveLayout(m_width - 1, m_height - 1, totalspace, freespace, config,
+		m_layoutNodes, m_liveNameStorage, wholeVolume);
 
-	// OnPaint already double-buffers, so route through the normal paint path.
 	InvalidateRect(NULL, FALSE);
 	UpdateWindow();
 }
+// Live frames, and the switch to the finished map, cross-fade briefly: just
+// long enough to soften the change, and shorter than the live frame interval
+// so a blend always finishes before the next one starts. Blends start from a
+// clean, unblended picture; starting from a half-blended one stacks ghost
+// images and looks blurred.
+void CFolderView::StartCrossfade(int durationMs)
+{
+	if (m_backBuffer.m_hObject == NULL || !::IsWindow(m_hWnd)) return;	// nothing shown yet
+	CClientDC screen(this);
+	if (m_xfadeActive) {
+		// The back buffer holds a blended picture; redraw the current one clean.
+		CDC clean;
+		clean.CreateCompatibleDC(&screen);
+		CBitmap *oldClean = clean.SelectObject(&m_backBuffer);
+		OnDraw(&clean);
+		clean.SelectObject(oldClean);
+	}
+	if (m_prevFrame.m_hObject == NULL || m_prevFrameSize != m_backBufferSize) {
+		if (m_prevFrame.m_hObject != NULL) m_prevFrame.DeleteObject();
+		m_prevFrame.CreateCompatibleBitmap(&screen, m_backBufferSize.cx, m_backBufferSize.cy);
+		m_prevFrameSize = m_backBufferSize;
+	}
+	CDC src, dst;
+	src.CreateCompatibleDC(&screen);
+	dst.CreateCompatibleDC(&screen);
+	CBitmap *oldSrc = src.SelectObject(&m_backBuffer);
+	CBitmap *oldDst = dst.SelectObject(&m_prevFrame);
+	dst.BitBlt(0, 0, m_backBufferSize.cx, m_backBufferSize.cy, &src, 0, 0, SRCCOPY);
+	src.SelectObject(oldSrc);
+	dst.SelectObject(oldDst);
+	m_xfadeActive = true;
+	m_xfadeStart = ::GetTickCount();
+	m_xfadeMs = durationMs;
+	if (m_animTimer == 0) m_animTimer = SetTimer(kAnimationTimer, 15, NULL);
+}
 
+void CFolderView::OnTimer(UINT_PTR id)
+{
+	if (id != kAnimationTimer) {
+		CFreeView::OnTimer(id);
+		return;
+	}
+	if (!m_xfadeActive || ::GetTickCount() - m_xfadeStart >= (DWORD)m_xfadeMs) {
+		m_xfadeActive = false;
+		KillTimer(m_animTimer);
+		m_animTimer = 0;
+	}
+	InvalidateRect(NULL, FALSE);
+	UpdateWindow();
+}
 void CFolderView::ClearLiveScanLayout(void)
 {
 	m_layoutNodes.clear();
@@ -921,6 +1281,8 @@ void CFolderView::ClearLiveScanLayout(void)
 
 void CFolderView::SetDocument(CFreeDoc *doc)
 {
+	// From the last live frame to the finished map (or back to empty): blend.
+	StartCrossfade(kFinalCrossfadeMs);
 	CFreeView::SetDocument(doc);
 
 	if (doc != NULL)
@@ -930,9 +1292,9 @@ void CFolderView::SetDocument(CFreeDoc *doc)
 
 	UpdateTitleBar();
 	OnSize(0, m_width, m_height);
-	CDC *dc = GetDC();
-	OnDraw(dc);
-	ReleaseDC(dc);
+	// Through OnPaint's back buffer; drawing into the window DC flickers.
+	InvalidateRect(NULL, FALSE);
+	UpdateWindow();
 }
 
 void CFolderView::OnActivate(UINT nState, CWnd *pWndOther, BOOL bMinimized)
@@ -955,9 +1317,8 @@ void CFolderView::OnUpdate(CFreeDoc *doc)
 
 	OnSize(0, m_width, m_height);
 
-	CDC *dc = GetDC();
-	OnDraw(dc);
-	ReleaseDC(dc);
+	InvalidateRect(NULL, FALSE);
+	UpdateWindow();
 
 	m_infotipwnd.SetShowDelay(theApp.m_settings.infotip_delay);
 	m_nametipwnd.SetShowDelay(theApp.m_settings.nametip_delay);
@@ -982,19 +1343,20 @@ void CFolderView::OnSize(UINT nType, int cx, int cy)
 		if (rootfolder == NULL) return;
 	}
 
-	TreemapConfig config;
-	config.density = theApp.m_settings.density;
-	config.bias = theApp.m_settings.bias;
-	config.showFreeSpace = (showfreespace != 0);
-	config.dpi = (int)GetWindowDpi(m_hWnd);
+	TreemapConfig config = MakeLayoutConfig();
 
-	TreemapEngine::ComputeLayout(0, 0, cx - 1, cy - 1, rootfolder, zoomlevel, config, m_layoutNodes);
+	CFolderTree *tree = (CFolderTree *)GetDocument();
+	if (zoomlevel == 0 && tree != NULL && tree->wholeVolume && rootfolder == tree->GetRoot())
+		TreemapEngine::ComputeVolumeLayout(0, 0, cx - 1, cy - 1, rootfolder, config, m_layoutNodes);
+	else
+		TreemapEngine::ComputeLayout(0, 0, cx - 1, cy - 1, rootfolder, zoomlevel, config, m_layoutNodes);
 }
 
 void CFolderView::ZoomIn(const TreemapNode *folder)
 {
 	CFolderTree *doc = (CFolderTree *)GetDocument();
 	CFolder *oldroot = rootfolder;
+	if (folder == NULL) return;
 
 	if (folder != NULL && folder->source != NULL && folder->index != (ui32)-1 && folder->source->children[folder->index] != NULL)
 		rootfolder = folder->source->children[folder->index];

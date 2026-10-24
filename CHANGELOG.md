@@ -7,6 +7,35 @@ every release needs a `## [X.Y.Z]` section here first.
 
 ## [Unreleased]
 
+### Added
+- Command line: `SpaceMonger.exe <path>` scans a drive, folder or share
+  (`\\PC01\c$`) directly; `/report <file or folder>` scans without a window,
+  writes a CSV report and exits (`/top N`, `/hide-system`, exit codes).
+- CSV export of the biggest folders and files (right-click, `Ctrl+E`).
+- Scan any folder from the drive dialog (*Folder...*) or by dropping it on
+  the window.
+- *Free Up Space* dialog: temporary files, caches and Recycle Bin in one
+  click; biggest personal files with tips, moved to the Recycle Bin together.
+- *Run as administrator* toolbar button; German translation; automatic
+  language from Windows; colour schemes including *By file type*.
+- Status strip with progress instead of the scan dialog; drive dialog opens
+  at start with the first drive selected; richer tooltips with full path.
+- Donation links (GitHub Sponsors, Ko-fi, PayPal).
+
+### Changed
+- Windows look: Common Controls v6, Fluent icon toolbar, Segoe UI dialogs,
+  fonts scale with DPI and Windows text size.
+- Live scan: the volume layout matches the final map, folders appear once
+  complete, and frames blend briefly instead of jumping.
+- System folders are muted and can be shown or hidden (*System* button);
+  the *not readable* estimate counts as system content.
+- Settings reduced to what people change: detail, colours, hover details,
+  highlight, Delete lock, language and theme.
+- The right-click menu no longer repeats toolbar commands; the
+  `Skipped: N` button is gone (the *not readable* block explains it).
+
+### Fixed
+- v1.4.5 did not start (duplicate `dpiAware` in the manifest).
 ## [1.4.5] - 2026-10-23
 
 First release of this fork, now code signed.

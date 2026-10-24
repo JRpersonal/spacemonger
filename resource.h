@@ -14,6 +14,7 @@
 #define IDD_INFO_BAR                    118
 #define IDD_SETTINGS                    119
 #define IDD_SCAN_DETAILS                120
+#define IDD_CLEANUP                     124
 #define IDB_BITMAP1                     123
 #define IDR_TOOLBAR_EN                  200
 #define IDR_TOOLBAR_FR                  201
@@ -82,6 +83,22 @@
 #define IDC_STATIC_MAINTAINER           1045
 #define IDC_PROJECT_WEBSITE             1046
 #define IDC_REPORT_BUG                  1047
+#define IDC_LICENSE                     1052
+#define IDC_CLEANUP_TEMP_HEADER         1053
+#define IDC_CLEANUP_LIST                1054
+#define IDC_CLEANUP_TOTAL               1055
+#define IDC_CLEANUP_DELETE              1056
+#define IDC_CLEANUP_LARGE_HEADER        1057
+#define IDC_CLEANUP_LARGE               1058
+#define IDC_CLEANUP_OPEN                1059
+#define IDC_CLEANUP_DETAILS             1060
+#define IDC_CLEANUP_SEP                 1061
+#define IDC_CLEANUP_DELETE_FILES        1062
+#define IDC_CLEANUP_MOVED               1063
+#define IDC_STATIC_LANG                 1064
+#define IDC_THEME                       1065
+#define IDC_STATIC_THEME                1066
+#define IDC_OPEN_FOLDER                 1067
 #define IDC_SCAN_NOTICE                 1048
 #define IDC_SCAN_DETAILS_SUMMARY        1049
 #define IDC_SCAN_DETAILS_LIST           1050
@@ -94,15 +111,19 @@
 #define ID_FILE_RUN                     40013
 #define ID_FILE_DELETE                  40014
 #define ID_SETTINGS                     40017
+#define ID_VIEW_HIDE_SYSTEM             40019
+#define ID_TOOLS_CLEANUP                40020
+#define ID_FILE_RUNAS                   40021
+#define ID_FILE_EXPORT                  40022
 #define ID_FILE_PROPERTIES              40018
 
 // Next default values for new objects
 //
 #ifdef APSTUDIO_INVOKED
 #ifndef APSTUDIO_READONLY_SYMBOLS
-#define _APS_NEXT_RESOURCE_VALUE        124
-#define _APS_NEXT_COMMAND_VALUE         40019
-#define _APS_NEXT_CONTROL_VALUE         1052
+#define _APS_NEXT_RESOURCE_VALUE        125
+#define _APS_NEXT_COMMAND_VALUE         40023
+#define _APS_NEXT_CONTROL_VALUE         1068
 #define _APS_NEXT_SYMED_VALUE           101
 #endif
 #endif

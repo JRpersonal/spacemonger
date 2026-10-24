@@ -8,10 +8,13 @@
 #include "DriveDialog.h"
 #include "SetupDlg.h"
 #include "TipWnd.h"
+#include "CleanupDialog.h"
 #include "AboutDialog.h"
 #include "CommandPolicy.h"
 #include "PathUtil.h"
+#include "SpaceReport.h"
 #include <shobjidl.h>
+#include <shlobj.h>
 
 /////////////////////////////////////////////////////////////////////////////
 // The primary CSpaceMonger object
@@ -36,7 +39,11 @@ BEGIN_MESSAGE_MAP(CSpaceMonger, CWinApp)
 
 
 	ON_COMMAND(ID_VIEW_FREE, OnShowFree)
+	ON_COMMAND(ID_VIEW_HIDE_SYSTEM, OnHideSystem)
+	ON_COMMAND(ID_TOOLS_CLEANUP, OnCleanup)
 	ON_COMMAND(ID_SETTINGS, OnSettings)
+	ON_COMMAND(ID_FILE_RUNAS, OnRunAsAdmin)
+	ON_COMMAND(ID_FILE_EXPORT, OnExport)
 	//}}AFX_MSG_MAP
 	ON_UPDATE_COMMAND_UI_RANGE(100, 41000, OnIgnoreUpdate)
 END_MESSAGE_MAP()
@@ -44,6 +51,150 @@ END_MESSAGE_MAP()
 CSpaceMonger::CSpaceMonger()
 {
 	m_document = NULL;
+	m_mainframe = NULL;
+	m_view = NULL;
+	m_headless = false;
+	m_exitCode = 0;
+}
+
+namespace {
+
+// Command line:
+//   SpaceMonger.exe [path] [/report <file or folder>] [/top N] [/hide-system]
+// A path alone scans it in the window (drive, folder or \\PC01\c$). With
+// /report nothing is shown: the scan is written as CSV and the program ends,
+// for rollouts and admin scripts. A report folder gets <COMPUTER>_<date>.csv.
+struct StartOptions {
+	CString path;
+	CString report;
+	int top = 25;
+	bool hideSystem = false;
+	bool invalid = false;
+};
+
+CString CleanPathArgument(CString path)
+{
+	path.Trim();
+	path.Trim(L'"');	// "C:\" arrives as C:" (the backslash escapes the quote)
+	if (path.GetLength() == 2 && path[1] == L':') path += L'\\';
+	return path;
+}
+
+StartOptions ParseStartOptions()
+{
+	StartOptions options;
+	int argc = 0;
+	LPWSTR *argv = ::CommandLineToArgvW(::GetCommandLineW(), &argc);
+	if (argv == NULL) return options;
+	CString path;
+	for (int i = 1; i < argc; ++i) {
+		CString arg = argv[i];
+		if (arg.GetLength() < 2 || (arg[0] != L'/' && arg[0] != L'-')) {
+			// Unquoted paths with spaces arrive in pieces; join them again.
+			if (!path.IsEmpty()) path += L' ';
+			path += arg;
+			continue;
+		}
+		CString name = arg.Mid(1), value;
+		int colon = name.Find(L':');
+		bool hasValue = colon > 0;
+		if (hasValue) { value = name.Mid(colon + 1); name = name.Left(colon); }
+		name.MakeLower();
+		auto takeValue = [&]() -> bool {
+			if (!hasValue && i + 1 < argc) { value = argv[++i]; hasValue = true; }
+			return hasValue && !value.IsEmpty();
+		};
+		if (name == L"report" || name == L"csv") {
+			if (takeValue()) options.report = CleanPathArgument(value);
+			else options.invalid = true;
+		}
+		else if (name == L"top") {
+			options.top = takeValue() ? _wtoi(value) : 0;
+			if (options.top <= 0) options.invalid = true;
+		}
+		else if (name == L"hide-system" || name == L"hidesystem") options.hideSystem = true;
+		else options.invalid = true;	// includes /? and /help
+	}
+	::LocalFree(argv);
+	options.path = CleanPathArgument(path);
+	return options;
+}
+
+const wchar_t kUsage[] =
+	L"SpaceMonger.exe [path] [/report <file or folder>] [/top N] [/hide-system]\r\n\r\n"
+	L"  path           Drive, folder or share to scan, e.g. D:\\ or \\\\PC01\\c$\r\n"
+	L"                 (default with /report: the Windows drive)\r\n"
+	L"  /report        Scan without a window, write a CSV report and exit.\r\n"
+	L"                 A folder gets <COMPUTER>_<yyyy-mm-dd>.csv.\r\n"
+	L"  /top N         Folders and files to list (default 25)\r\n"
+	L"  /hide-system   Leave out Windows, Program Files and other system content\r\n\r\n"
+	L"Exit codes: 0 report written, 1 invalid arguments, 2 scan failed, 3 report not written.\r\n";
+
+// Messages for the console a script started us from; a scheduled task has
+// none, then they go nowhere and the exit code is all there is.
+void ConsoleLine(const CString &text)
+{
+	static bool attached = ::AttachConsole(ATTACH_PARENT_PROCESS) != FALSE;
+	if (!attached) return;
+	HANDLE out = ::GetStdHandle(STD_OUTPUT_HANDLE);
+	if (out == NULL || out == INVALID_HANDLE_VALUE) return;
+	CString line = text + L"\r\n";
+	DWORD written = 0;
+	if (!::WriteConsoleW(out, (LPCWSTR)line, (DWORD)line.GetLength(), &written, NULL)) {
+		// Redirected to a file: write UTF-8.
+		CStringA utf8 = CW2A(line, CP_UTF8);
+		::WriteFile(out, (LPCSTR)utf8, (DWORD)utf8.GetLength(), &written, NULL);
+	}
+}
+
+SM_ReportVolume MakeReportVolume(const CFolderTree &tree)
+{
+	SM_ReportVolume volume;
+	volume.path = (LPCWSTR)tree.m_path;
+	if (!volume.path.empty() && volume.path.back() != L'\\') volume.path += L'\\';
+	volume.computer = SM_ReportComputerForPath(volume.path);
+	volume.wholeVolume = tree.wholeVolume;
+	volume.totalSpace = tree.totalspace;
+	volume.freeSpace = tree.freespace;
+	volume.scannedBytes = tree.filespace;
+	FILETIME now;
+	::GetSystemTimeAsFileTime(&now);
+	volume.scanTime = ((ui64)now.dwHighDateTime << 32) | now.dwLowDateTime;
+	return volume;
+}
+
+int RunHeadlessReport(const StartOptions &options)
+{
+	CString path = options.path;
+	if (path.IsEmpty()) {
+		wchar_t drive[MAX_PATH] = L"C:";
+		::GetEnvironmentVariableW(L"SystemDrive", drive, MAX_PATH);
+		path = CleanPathArgument(drive);
+	}
+	ConsoleLine(L"SpaceMonger: scanning " + path);
+
+	CFolderTree tree;
+	if (!tree.LoadTree(path, 0, NULL) || tree.GetRoot() == NULL) {
+		ConsoleLine(L"SpaceMonger: the scan of " + path + L" failed.");
+		return 2;
+	}
+	SM_ReportVolume volume = MakeReportVolume(tree);
+	SM_ReportOptions reportOptions;
+	SM_ReportLocaleSeparators(reportOptions);
+	reportOptions.top = options.top;
+	reportOptions.hideSystem = options.hideSystem;
+	std::wstring text = SM_BuildSpaceReport(tree.GetRoot(), volume, reportOptions);
+	std::wstring file = SM_ResolveReportPath((LPCWSTR)options.report, volume.computer);
+	if (!SM_WriteUtf8File(file, text)) {
+		CString message;
+		message.Format(L"SpaceMonger: could not write %s (Windows error %lu).", file.c_str(), ::GetLastError());
+		ConsoleLine(message);
+		return 3;
+	}
+	ConsoleLine(CString(L"SpaceMonger: report written to ") + file.c_str());
+	return 0;
+}
+
 }
 
 CSpaceMonger::~CSpaceMonger()
@@ -66,7 +217,20 @@ BOOL CSpaceMonger::InitInstance()
 	// odd, but it will end up creating the necessary entries if they don't
 	// exist.
 	m_settings.Load();
+
+	StartOptions start = ParseStartOptions();
+	if (start.invalid || !start.report.IsEmpty()) {
+		// Headless: returning FALSE ends the program with ExitInstance's code.
+		m_headless = true;
+		if (start.invalid) {
+			ConsoleLine(kUsage);
+			m_exitCode = 1;
+		}
+		else m_exitCode = RunHeadlessReport(start);
+		return FALSE;
+	}
 	m_settings.Save();
+	if (start.hideSystem) m_settings.hide_system = TRUE;
 
 	int showcmd = m_settings.showcmd;
 	RECT rect = m_settings.rect;
@@ -106,11 +270,27 @@ BOOL CSpaceMonger::InitInstance()
 	m_mainframe->UpdateWindow();
 	m_mainframe->RecalcLayout();
 
+	m_mainframe->DragAcceptFiles(TRUE);
+
+	// "SpaceMonger.exe D:\" or "SpaceMonger.exe \\PC01\c$" scans that path right
+	// away (shortcuts for a rollout, admin scripts, "Open with"). Otherwise
+	// start with the drive picker: choosing a drive is what nearly every
+	// session begins with.
+	if (!start.path.IsEmpty()) {
+		// LoadTree pumps messages itself, so this works before the message loop starts.
+		ScanPath(start.path);
+	}
+	else m_mainframe->PostMessage(WM_COMMAND, ID_FILE_OPEN);
+
 	return(TRUE);
 }
 
 int CSpaceMonger::ExitInstance()
 {
+	if (m_headless) {
+		delete m_document;
+		return m_exitCode;
+	}
 	m_settings.Save();
 
 	// m_pMainWnd is auto-deleted by the framework
@@ -131,16 +311,100 @@ void CSpaceMonger::OnFileOpen(void)
 	int drive = (int)drvdialog.DoModal();
 	if (drive == -1) return;
 
+	if (drive == CDriveDialog::kFolderChosen) {
+		ScanPath(drvdialog.m_folder);
+		return;
+	}
+	CString path;
+	path.Format(L"%c:\\", (wchar_t)(drive + 'A'));
+	ScanPath(path);
+}
+
+void CSpaceMonger::ScanPath(const CString &path)
+{
+	CMainFrame *frame = (CMainFrame *)m_mainframe;
+	if (path.IsEmpty() || (frame != NULL && frame->IsScanning())) return;
 	CFolderTree *ft = (CFolderTree *)m_document;
-	ft->m_path.Format(L"%c:\\", (wchar_t)(drive + 'A'));
+	ft->m_path = CleanPathArgument(path);
+	// Called directly: a posted ID_FILE_REFRESH would be dropped, because
+	// the command is disabled while nothing is open.
 	OnFileRefresh();
+}
+
+// Exports the biggest folders and files of the scan as CSV (Excel), the same
+// report the headless /report mode writes.
+void CSpaceMonger::OnExport(void)
+{
+	CFolderTree *ft = (CFolderTree *)m_document;
+	if (ft == NULL || ft->GetRoot() == NULL) return;
+	SM_ReportVolume volume = MakeReportVolume(*ft);
+
+	PWSTR documents = NULL;
+	CString folder;
+	if (SUCCEEDED(::SHGetKnownFolderPath(FOLDERID_Documents, 0, NULL, &documents))) folder = documents;
+	::CoTaskMemFree(documents);
+	std::wstring suggested = SM_ResolveReportPath(folder.IsEmpty() ? L".\\" : (LPCWSTR)(folder + L"\\"), volume.computer);
+	CString name = ::PathFindFileNameW(suggested.c_str());
+
+	CFileDialog dialog(FALSE, L"csv", name, OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST | OFN_HIDEREADONLY,
+		L"CSV (*.csv)|*.csv||", m_mainframe);
+	if (!folder.IsEmpty()) dialog.m_ofn.lpstrInitialDir = folder;
+	if (dialog.DoModal() != IDOK) return;
+
+	SM_ReportOptions options;
+	SM_ReportLocaleSeparators(options);
+	options.top = 100;
+	options.hideSystem = m_settings.hide_system != 0;
+	CString file = dialog.GetPathName();
+	if (!SM_WriteUtf8File((LPCWSTR)file, SM_BuildSpaceReport(ft->GetRoot(), volume, options))) {
+		CString message;
+		message.Format(L"%s\n\nWindows error %lu", (LPCWSTR)file, ::GetLastError());
+		m_mainframe->MessageBox(message, L"SpaceMonger", MB_ICONWARNING | MB_OK);
+		return;
+	}
+	CString done;
+	done.Format(CurLang->export_done_format, (LPCWSTR)file);
+	m_mainframe->MessageBox(done, L"SpaceMonger", MB_ICONINFORMATION | MB_OK);
+}
+
+// Restarts elevated on the same path, so folders of other users and System
+// Volume Information become readable. The current instance closes only once
+// the elevated one has actually started (the UAC prompt may be declined).
+void CSpaceMonger::OnRunAsAdmin(void)
+{
+	wchar_t exe[MAX_PATH];
+	if (::GetModuleFileNameW(NULL, exe, MAX_PATH) == 0) return;
+	CString args;
+	CFolderTree *ft = (CFolderTree *)m_document;
+	if (ft != NULL && !ft->m_path.IsEmpty()) {
+		CString path = ft->m_path;
+		// A trailing backslash would escape the closing quote ("C:\"); the
+		// command-line handling turns "C:" back into "C:\".
+		path.TrimRight(L'\\');
+		args = L"\"" + path + L"\"";
+	}
+	SHELLEXECUTEINFOW info;
+	memset(&info, 0, sizeof(info));
+	info.cbSize = sizeof(info);
+	info.hwnd = m_mainframe->m_hWnd;
+	info.lpVerb = L"runas";
+	info.lpFile = exe;
+	info.lpParameters = args.IsEmpty() ? NULL : (LPCWSTR)args;
+	info.nShow = SW_SHOWNORMAL;
+	if (::ShellExecuteExW(&info)) {
+		m_mainframe->PostMessage(WM_CLOSE);
+	}
+	else if (::GetLastError() != ERROR_CANCELLED) {
+		m_mainframe->MessageBox(CurLang->restart_admin_failed, L"SpaceMonger", MB_ICONWARNING | MB_OK);
+	}
 }
 
 void CSpaceMonger::OnFileRefresh(void)
 {
 	CFolderTree *ft = (CFolderTree *)m_document;
 
-	m_mainframe->EnableWindow(0);
+	// The frame stays enabled during the scan so its Cancel button works;
+	// LoadTree locks the toolbar and the map through CMainFrame::BeginScan.
 	m_view->SetDocument(NULL);
 	m_view->UpdateWindow();
 
@@ -148,7 +412,6 @@ void CSpaceMonger::OnFileRefresh(void)
 	ft->LoadTree(ft->m_path, 1, m_mainframe);
 	m_view->SetDocument(m_document);
 	ft->UpdateAllViews();
-	m_mainframe->EnableWindow(1);
 }
 
 void CSpaceMonger::OnFileRun(void)
@@ -158,11 +421,8 @@ void CSpaceMonger::OnFileRun(void)
 
 	if (fv == NULL || ft == NULL || fv->selected == NULL) return;
 
-	std::wstring title = fv->BuildItemPathW(fv->selected);
-	std::wstring path = fv->BuildContainerPathW(fv->selected);
-
-	if ((INT_PTR)ShellExecuteW(NULL, NULL, title.c_str(), NULL, path.c_str(), SW_SHOWDEFAULT) <= 32)
-		AfxMessageBox(L"Windows failed to open file.");
+	// Opening and running happen in Explorer; SpaceMonger shows where it is.
+	fv->ShowInExplorer(fv->selected);
 }
 
 static HRESULT DeleteShellItem(const std::wstring& path, HWND owner)
@@ -252,7 +512,7 @@ void CSpaceMonger::OnFileDelete(void)
 
 void CSpaceMonger::OnZoomIn(void)
 {
-	((CFolderView *)m_view)->ZoomIn(((CFolderView *)m_view)->selected);
+	((CFolderView *)m_view)->ZoomIn(((CFolderView *)m_view)->ZoomTarget());
 }
 
 void CSpaceMonger::OnZoomOut(void)
@@ -274,6 +534,28 @@ void CSpaceMonger::OnShowFree(void)
 	BOOL showfreespace = !fv->showfreespace;
 	mf->m_toolbar.EnableState(CMainToolBar::ViewFree, showfreespace);
 	fv->ShowFreeSpace(showfreespace);
+}
+
+void CSpaceMonger::OnHideSystem(void)
+{
+	CFolderView *fv = (CFolderView *)m_view;
+	CMainFrame *mf = (CMainFrame *)m_mainframe;
+	if (fv == NULL || mf == NULL) return;
+
+	m_settings.hide_system = !m_settings.hide_system;
+	m_settings.Save();
+	mf->m_toolbar.EnableState(CMainToolBar::ShowSystem, !m_settings.hide_system);
+	fv->OnUpdate(m_document);
+}
+
+void CSpaceMonger::OnCleanup(void)
+{
+	CFolderTree *ft = (CFolderTree *)m_document;
+	CCleanupDialog dialog(ft, m_mainframe);
+	dialog.DoModal();
+	// Show the space that was just freed.
+	if (dialog.FreedAnything() && ft != NULL && ft->GetRoot() != NULL)
+		OnFileRefresh();
 }
 
 void CSpaceMonger::OnSettings(void)
@@ -347,8 +629,7 @@ void GeneralIgnoreUpdate(CCmdUI *ui)
 		if (ft == NULL || ft->GetRoot() == NULL) ui->Enable(0);
 	}
 	else if (ui->m_nID == ID_VIEW_ZOOM_IN) {
-		if (cur == NULL || (cur->flags & 1) == 0)
-			ui->Enable(0);
+		if (!fv->CanZoomIn()) ui->Enable(0);
 	}
 	else if (ui->m_nID == ID_VIEW_ZOOM_OUT || ui->m_nID == ID_VIEW_ZOOM_FULL) {
 		if (zoom == 0) ui->Enable(0);
@@ -377,10 +658,13 @@ void CCurrentSettings::Reset(void)
 	rect.left = rect.right = rect.top = rect.bottom = CW_USEDEFAULT;
 	showcmd = SW_SHOWNORMAL;
 	save_pos = 0;
-	lang[0] = 'u';
-	lang[1] = 's';
+	lang[0] = 'a';	// "au": follow the Windows display language
+	lang[1] = 'u';
 	lang[2] = '\0';
 	lang[3] = '\0';
+	hide_system = 0;
+	color_scheme = 0;
+	theme = 0;
 }
 
 void CCurrentSettings::Load(void)
@@ -411,6 +695,8 @@ void CCurrentSettings::Load(void)
 	RegQueryValueEx(key, L"show_name_tips",		NULL, &type, (unsigned char *)&show_name_tips, &size);
 	size = sizeof(rollover_box);
 	RegQueryValueEx(key, L"show_rollover_box",	NULL, &type, (unsigned char *)&rollover_box, &size);
+	size = sizeof(hide_system);
+	RegQueryValueEx(key, L"hide_system_folders",	NULL, &type, (unsigned char *)&hide_system, &size);
 	size = sizeof(show_info_tips);
 	RegQueryValueEx(key, L"show_info_tips",		NULL, &type, (unsigned char *)&show_info_tips, &size);
 	size = sizeof(nametip_delay);
@@ -431,6 +717,19 @@ void CCurrentSettings::Load(void)
 	RegQueryValueEx(key, L"window_showcmd",		NULL, &type, (unsigned char *)&showcmd, &size);
 	size = sizeof(lang);
 	RegQueryValueExA(key, "lang",				NULL, &type, (unsigned char *)&lang, &size);
+	size = sizeof(color_scheme);
+	RegQueryValueEx(key, L"color_scheme",		NULL, &type, (unsigned char *)&color_scheme, &size);
+	size = sizeof(theme);
+	RegQueryValueEx(key, L"theme",				NULL, &type, (unsigned char *)&theme, &size);
+	// Settings before 1.4.6 stored "us" without anyone choosing it; from
+	// then on the language follows Windows unless picked in Settings.
+	DWORD settingsVersion = 0;
+	size = sizeof(settingsVersion);
+	if (RegQueryValueEx(key, L"settings_version", NULL, &type, (unsigned char *)&settingsVersion, &size) != ERROR_SUCCESS
+		|| settingsVersion < 2) {
+		lang[0] = 'a'; lang[1] = 'u';
+		if (folder_color == 1) color_scheme = 2;	// was "Windows Colors"
+	}
 	RegCloseKey(key);
 
 	if (density < -3) density = -3;
@@ -445,6 +744,7 @@ void CCurrentSettings::Load(void)
 	save_pos = !!save_pos;
 
 	rollover_box = !!rollover_box;
+	hide_system = !!hide_system;
 
 	show_name_tips = !!show_name_tips;
 	if (nametip_delay < 0) nametip_delay = 0;
@@ -455,8 +755,19 @@ void CCurrentSettings::Load(void)
 	if (infotip_delay < 0) infotip_delay = 0;
 	if (infotip_delay > 99999) infotip_delay = 99999;
 
-	if (bias < -20) bias = -20;
-	if (bias > 20) bias = 20;
+	// Options that are no longer settings: always on / fixed.
+	bias = 0;
+	auto_rescan = 1;
+	animated_zoom = 1;
+	save_pos = 1;
+	show_name_tips = show_info_tips;
+	nametip_delay = 125;
+	infotip_delay = 400;
+	infotip_flags = TIP_PATH|TIP_NAME|TIP_ICON|TIP_DATE|TIP_SIZE;
+	if (density < -1) density = -1;
+	if (density > 2) density = 2;
+	if (color_scheme < 0 || color_scheme > 3) color_scheme = 0;
+	if (theme < 0 || theme > 2) theme = 0;
 
 	// Ensure that the window's provided rectangle has at least a little of
 	// its area visible to the end-user.
@@ -487,27 +798,39 @@ void CCurrentSettings::Load(void)
 		&& showcmd != SW_SHOWNORMAL)
 		showcmd = SW_SHOWNORMAL;
 
-	// Find the language in the list of languages.  If it's not found,
-	// try US English.
 	lang[0] = (char)tolower((unsigned char)lang[0]);
 	lang[1] = (char)tolower((unsigned char)lang[1]);
 	lang[2] = '\0';
 	lang[3] = '\0';
-	int i;
-	CurLang = NULL;
-	for (i = 0; Langs[i].name != NULL; i++) {
-		if (lang[0] == Langs[i].abbrev[0] && lang[1] == Langs[i].abbrev[1]) {
-			CurLang = Langs[i].text;
+	CurLang = SM_ResolveLanguage(lang);
+}
+
+// "au" (or anything unknown) follows the Windows display language:
+// German, French, British/Australian English, otherwise US English.
+Lang *SM_ResolveLanguage(const char *code)
+{
+	char wanted[3] = { code[0], code[1], '\0' };
+	if (wanted[0] == 'a' && wanted[1] == 'u') {
+		LANGID ui = ::GetUserDefaultUILanguage();
+		switch (PRIMARYLANGID(ui)) {
+		case LANG_GERMAN: wanted[0] = 'd'; wanted[1] = 'e'; break;
+		case LANG_FRENCH: wanted[0] = 'f'; wanted[1] = 'r'; break;
+		case LANG_ENGLISH:
+			if (SUBLANGID(ui) == SUBLANG_ENGLISH_UK || SUBLANGID(ui) == SUBLANG_ENGLISH_AUS
+				|| SUBLANGID(ui) == SUBLANG_ENGLISH_NZ || SUBLANGID(ui) == SUBLANG_ENGLISH_EIRE) {
+				wanted[0] = 'u'; wanted[1] = 'k';
+			} else {
+				wanted[0] = 'u'; wanted[1] = 's';
+			}
 			break;
+		default: wanted[0] = 'u'; wanted[1] = 's'; break;
 		}
 	}
-	if (CurLang == NULL) {
-		CurLang = Langs[0].text;
-		lang[0] = Langs[0].abbrev[0];
-		lang[1] = Langs[0].abbrev[1];
-		lang[2] = '\0';
-		lang[3] = '\0';
+	for (int i = 0; Langs[i].name != NULL; i++) {
+		if (wanted[0] == Langs[i].abbrev[0] && wanted[1] == Langs[i].abbrev[1])
+			return Langs[i].text;
 	}
+	return Langs[0].text;
 }
 
 void CCurrentSettings::Save(void)
@@ -536,6 +859,8 @@ void CCurrentSettings::Save(void)
 	RegSetValueEx(key, L"show_name_tips",	NULL, REG_DWORD, (unsigned char *)&show_name_tips, size);
 	size = sizeof(rollover_box);
 	RegSetValueEx(key, L"show_rollover_box",	NULL, REG_DWORD, (unsigned char *)&rollover_box, size);
+	size = sizeof(hide_system);
+	RegSetValueEx(key, L"hide_system_folders",	NULL, REG_DWORD, (unsigned char *)&hide_system, size);
 	size = sizeof(show_info_tips);
 	RegSetValueEx(key, L"show_info_tips",	NULL, REG_DWORD, (unsigned char *)&show_info_tips, size);
 	size = sizeof(nametip_delay);
@@ -556,5 +881,11 @@ void CCurrentSettings::Save(void)
 	RegSetValueEx(key, L"window_showcmd",	NULL, REG_DWORD, (unsigned char *)&showcmd, size);
 	size = sizeof(lang);
 	RegSetValueExA(key, "lang",				NULL, REG_SZ, (unsigned char *)&lang, 3);
+	size = sizeof(color_scheme);
+	RegSetValueEx(key, L"color_scheme",		NULL, REG_DWORD, (unsigned char *)&color_scheme, size);
+	size = sizeof(theme);
+	RegSetValueEx(key, L"theme",				NULL, REG_DWORD, (unsigned char *)&theme, size);
+	DWORD settingsVersion = 2;
+	RegSetValueEx(key, L"settings_version",	NULL, REG_DWORD, (unsigned char *)&settingsVersion, sizeof(settingsVersion));
 	RegCloseKey(key);
 }

@@ -30,33 +30,9 @@ public:
 	ui64 freespace, usedspace, totalspace, clustersize;
 	ui64 numfiles, numfolders;
 	ui64 filespace;
-};
-
-struct ScanProgress;
-
-class CFolderDialog : public CDialog {
-public:
-	CFolderDialog();
-	DECLARE_DYNCREATE(CFolderDialog)
-	virtual ~CFolderDialog();
-
-	virtual void Reset(void);
-	virtual void UpdateFromProgress(const ScanProgress& progress, ui64 usedspace);
-
-	virtual void OnCancel(void);
-
-protected:
-	void DrawScanAnimation(ui32 frame);
-
-	//{{AFX_MSG(CFolderDialog)
-	//}}AFX_MSG
-	DECLARE_MESSAGE_MAP()
-
-public:
-	BOOL cancelled;
-
-protected:
-	ui32 cur_frame;
+	// The scan root is a volume root: the map shows free/unavailable space
+	// with the same fixed split as the live scan.
+	bool wholeVolume;
 };
 
 #endif // _AFX

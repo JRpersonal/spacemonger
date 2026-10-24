@@ -8,6 +8,7 @@
 #include <string>
 #include <new>
 #include <cstdlib>
+#include <crtdbg.h>
 #include <aclapi.h>
 #pragma comment(lib, "advapi32.lib")
 
@@ -453,6 +454,26 @@ static int test_live_layout_nested_folders()
 	CHECK(!foundScanning); // Scanning block is removed
 	CHECK(foundFreeSpace);
 
+	// Whole-volume mode: the used/free split is fixed (150000 used of
+	// 200000), so the free block covers the last quarter of the width.
+	engine.GenerateLiveLayout(1000, 800, 200000, 50000, config, nodes, names, true);
+	bool foundFixedFree = false;
+	bool foundScannedFolder = false;
+	for (const auto& n : nodes) {
+		CHECK(n.source == nullptr);
+		if (n.name != nullptr && wcscmp(n.name, L"<Free Space>") == 0) {
+			foundFixedFree = true;
+			CHECK(n.IsSpecial());
+			CHECK(n.x == 750 && n.w == 250 && n.h == 800);
+		}
+		if (n.name != nullptr && wcscmp(n.name, L"FolderA") == 0) {
+			foundScannedFolder = true;
+			CHECK(n.x + n.w <= 750);
+		}
+	}
+	CHECK(foundFixedFree);
+	CHECK(foundScannedFolder);
+
 	CStringArena targetArena;
 	CFolder* root = engine.DetachResult(targetArena);
 	CHECK(root != NULL);
@@ -731,23 +752,33 @@ static int test_access_denied_reports_scan_status()
 	return 1;
 }
 
+// Names each test as it starts, so a crash or timeout in CI points at it.
+#define RUN_TEST(test) do { printf("%s\n", #test); fflush(stdout); if (!test()) return 1; } while (0)
+
 int main()
 {
-	if (!test_missing_scan_root_is_not_success()) return 1;
-	if (!test_empty_scan_root_is_success()) return 1;
-	if (!test_live_layout_allocation_failures()) return 1;
-	if (!test_depth_limit_reports_partial_scan()) return 1;
-	if (!test_access_denied_reports_scan_status()) return 1;
-	if (!test_async_scan_directory_tree()) return 1;
-	if (!test_async_scan_preserves_unicode_names()) return 1;
-	if (!test_async_scan_cancellation()) return 1;
-	if (!test_async_scan_rescan_after_cancel()) return 1;
-	if (!test_async_scan_repeated_shutdown_stress()) return 1;
-	if (!test_async_scan_is_scanning_loop_termination()) return 1;
-	if (!test_concurrent_live_layout()) return 1;
-	if (!test_live_layout_nested_folders()) return 1;
-	if (!test_live_layout_during_active_multilevel_scan()) return 1;
-	if (!test_live_layout_survives_engine_destruction()) return 1;
+	// Debug CRT checks go to stderr: an assertion dialog would block CI
+	// (and pop up on a developer's desktop) until the test times out.
+	_CrtSetReportMode(_CRT_ASSERT, _CRTDBG_MODE_FILE);
+	_CrtSetReportFile(_CRT_ASSERT, _CRTDBG_FILE_STDERR);
+	_CrtSetReportMode(_CRT_ERROR, _CRTDBG_MODE_FILE);
+	_CrtSetReportFile(_CRT_ERROR, _CRTDBG_FILE_STDERR);
+	_set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
+	RUN_TEST(test_missing_scan_root_is_not_success);
+	RUN_TEST(test_empty_scan_root_is_success);
+	RUN_TEST(test_live_layout_allocation_failures);
+	RUN_TEST(test_depth_limit_reports_partial_scan);
+	RUN_TEST(test_access_denied_reports_scan_status);
+	RUN_TEST(test_async_scan_directory_tree);
+	RUN_TEST(test_async_scan_preserves_unicode_names);
+	RUN_TEST(test_async_scan_cancellation);
+	RUN_TEST(test_async_scan_rescan_after_cancel);
+	RUN_TEST(test_async_scan_repeated_shutdown_stress);
+	RUN_TEST(test_async_scan_is_scanning_loop_termination);
+	RUN_TEST(test_concurrent_live_layout);
+	RUN_TEST(test_live_layout_nested_folders);
+	RUN_TEST(test_live_layout_during_active_multilevel_scan);
+	RUN_TEST(test_live_layout_survives_engine_destruction);
 	printf("AsyncScan_test passed successfully.\n");
 	return 0;
 }
