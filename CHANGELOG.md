@@ -10,7 +10,8 @@ every release needs a `## [X.Y.Z]` section here first.
 ### Added
 - HTML report: `/html <file or folder>` (and *Export list*, `Ctrl+E`) writes
   one self-contained page with the map as in the window, hover details, zoom
-  by double-click and the biggest folders and files. No network needed; a
+  by double-click, Explorer on a double-clicked file (as in the window) and
+  the biggest folders and files. No network needed; a
   whole drive is a few hundred KB, so it fits into OneDrive or a mail.
 - *Show in Explorer* from the HTML page through `spacemonger:` links,
   set up per user with `/register` (`/unregister` removes them). Only plain

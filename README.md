@@ -200,7 +200,8 @@ The full file also has the size in bytes and the scan date.
 
 `/html` (or *Export list* in the window, `Ctrl+E`) writes one self-contained
 page with the same map as the window: hover for details, double-click a
-folder to zoom in, the biggest folders and files below. It needs no network,
+folder to zoom in or a file to show it in Explorer, the biggest folders and
+files below. It needs no network,
 sends nothing anywhere and opens in any browser, so it can be put into the
 user's OneDrive or sent by mail. A whole drive is a few hundred KB.
 
