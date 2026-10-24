@@ -562,15 +562,20 @@ void CSpaceMonger::OnCleanup(void)
 
 void CSpaceMonger::OnSettings(void)
 {
+	// The dialog applies every change at once and undoes them on Cancel.
 	CSettingsDialog settingsdialog;
-	if (settingsdialog.DoModal() == IDOK) {
+	if (settingsdialog.DoModal() == IDOK)
 		m_settings.Save();
-		if (m_view != NULL && m_document != NULL) {
-			m_view->OnUpdate(m_document);
-			((CFolderView *)m_view)->UpdateTitleBar();
-		}
-		((CMainFrame *)m_mainframe)->ApplyAppearance();
+}
+
+void CSpaceMonger::ApplySettings(void)
+{
+	if (m_view != NULL && m_document != NULL) {
+		m_view->OnUpdate(m_document);
+		((CFolderView *)m_view)->UpdateTitleBar();
 	}
+	if (m_mainframe != NULL)
+		((CMainFrame *)m_mainframe)->ApplyAppearance();
 }
 
 void CSpaceMonger::OnFileProperties(void)

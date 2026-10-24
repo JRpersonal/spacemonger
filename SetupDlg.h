@@ -12,15 +12,17 @@ protected:
 	virtual void OnOK();
 	virtual void OnCancel();
 	virtual void OnLang();
+	afx_msg void OnChange();
 	//}}AFX_MSG
 	DECLARE_MESSAGE_MAP()
 
 	void UpdateDialogForNewLanguage(void);
+	void ReadControls(void);
 
 	virtual BOOL OnInitDialog();
 
 protected:
-	char oldlang[4];
+	CCurrentSettings oldsettings;	// restored on Cancel
 	Lang *oldlangptr;
 };
 
