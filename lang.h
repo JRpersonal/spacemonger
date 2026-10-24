@@ -65,7 +65,7 @@ struct Lang {
 	const wchar_t **cleanup_kind_labels;	// SM_CleanupKind order
 	const wchar_t **cleanup_hint_labels;	// SM_LargeFileKind order
 	// Toolbar labels in button order: open, rescan, zoom full, zoom in,
-	// zoom out, free space, system, delete, clean up, run as administrator,
+	// zoom out, free space, system, delete, clean up, report, run as administrator,
 	// settings, about.
 	const wchar_t **toolbarlabels;
 };

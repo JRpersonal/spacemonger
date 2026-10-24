@@ -107,6 +107,9 @@ no longer need and move it to the Recycle Bin together.
 ### For administrators
 
 - Command line scans and headless CSV reports, see [Command line](#command-line).
+- *Report* button: the scan as an HTML page with the map (see
+  [HTML report](#html-report)), saved to *Documents\SpaceMonger* and opened
+  in the browser.
 - CSV export of the biggest folders and files from the window
   (right-click > *Export list*, `Ctrl+E`).
 - *Run as administrator* restarts elevated with the same path, for folders
@@ -198,7 +201,7 @@ The full file also has the size in bytes and the scan date.
 
 ### HTML report
 
-`/html` (or *Export list* in the window, `Ctrl+E`) writes one self-contained
+`/html`, the *Report* button in the window or *Export list* (`Ctrl+E`) write one self-contained
 page with the same map as the window: hover for details, double-click a
 folder to zoom in or a file to show it in Explorer, the biggest folders and
 files below. It needs no network,

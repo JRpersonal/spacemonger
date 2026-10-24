@@ -75,6 +75,7 @@ public:
 	afx_msg void OnSettings(void);
 	afx_msg void OnRunAsAdmin(void);
 	afx_msg void OnExport(void);
+	afx_msg void OnReport(void);
 	afx_msg void OnFileProperties(void);
 	afx_msg void OnIgnoreUpdate(CCmdUI *ui);
 	//}}AFX_MSG

@@ -39,7 +39,7 @@ static const wchar_t *attribnames[] = {
 
 static const wchar_t *entoolbarlabels[] = {
 	L"Open", L"Rescan", L"Zoom Full", L"Zoom In", L"Zoom Out",
-	L"Free Space", L"System", L"Delete", L"Clean Up", L"Run as administrator", L"Settings", L"About",
+	L"Free Space", L"System", L"Delete", L"Clean Up", L"Report", L"Run as administrator", L"Settings", L"About",
 };
 
 static const wchar_t *enfiletypes[] = {
