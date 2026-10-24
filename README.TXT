@@ -1,5 +1,5 @@
 
-SpaceMonger Version 1.4.6
+SpaceMonger Version 1.4.7
 -------------------------
 
 
@@ -19,7 +19,7 @@ The latest version of SpaceMonger is always available at:
 SYSTEM REQUIREMENTS
 -------------------
 
-SpaceMonger 1.4.6 is optimized for modern Windows environments. It is intended
+SpaceMonger 1.4.7 is optimized for modern Windows environments. It is intended
 to run on Windows 10, Windows 11, and modern Windows Server editions.
 Because it is a native C++ MFC application, it has virtually zero dependencies
 and remains incredibly lightweight. Any PC capable of running Windows today
@@ -116,6 +116,17 @@ users of the program to give away copies to their friends.
 
 WHAT'S NEW
 ----------
+
+Between 1.4.6 and 1.4.7 (HTML Report)
+   * HTML report: the map as one page that opens in any browser, with
+     hover details, zoom and the biggest folders and files. Report button
+     in the toolbar, /html on the command line for rollouts.
+   * Show in Explorer from the report (SpaceMonger.exe /register), also
+     by double-clicking a file, as in the window.
+   * Settings take effect as soon as they are chosen.
+   * Clearer toolbar icons in dark mode and a larger search field.
+   * Fixed: blocks of small files were grey when coloured by file type;
+     a missing backslash in the window title after zooming.
 
 Between 1.4.5 and 1.4.6 (Modern Look, Free Up Space, Reports)
    * Windows look with Fluent icons, dark mode, sharp text at any DPI,
