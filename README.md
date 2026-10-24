@@ -47,6 +47,9 @@ and carry Sigstore build provenance. [How to verify](SECURITY.md#verifying-a-dow
   hidden; *Run as administrator* restarts elevated to read the rest.
 - CSV export (right-click > *Export list*, `Ctrl+E`) and a headless report
   mode for company rollouts, see [Command line](#command-line).
+- Path bar with clickable folders, search (`Ctrl+F`) that washes out
+  everything else, and a colour legend for *By file type*.
+- Light and dark mode, following Windows or set in the settings.
 - English, German and French, following the Windows display language.
 - Multithreaded scanner; the treemap builds live while the scan runs
   (at most every 250 ms, only when something changed).

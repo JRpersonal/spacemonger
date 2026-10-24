@@ -4,6 +4,7 @@
 #include "FolderView.h"
 #include "AboutDialog.h"
 #include "ScanDetailsDialog.h"
+#include "Theme.h"
 #include "Lang.h"
 #include "DpiUtil.h"
 #include <string>
@@ -26,6 +27,7 @@ BEGIN_MESSAGE_MAP(CMainFrame, CFrameWnd)
 	ON_MESSAGE(0x02E0, OnDpiChanged)
 	ON_MESSAGE(WM_SCAN_NOTICE_CLICKED, OnScanNoticeClickedMessage)
 	ON_WM_DROPFILES()
+	ON_WM_SETTINGCHANGE()
 	ON_MESSAGE(WM_SCAN_DROPPED_PATH, OnScanDroppedPath)
 	//}}AFX_MSG_MAP
 	ON_UPDATE_COMMAND_UI(IDC_SCAN_NOTICE, OnScanNoticeUpdate)
@@ -89,6 +91,9 @@ int CMainFrame::OnCreate(LPCREATESTRUCT lpCreateStruct)
 		CRect(0, 0, 1, 1), this, IDC_SCAN_NOTICE)) return(-1);
 	m_scanNoticeButton.ShowWindow(SW_HIDE);
 	if (!m_scanStatus.Create(this)) return(-1);
+	if (!m_pathBar.Create(this)) return(-1);
+	m_pathBar.SetUiFont(m_toolbar.GetUiFont(), m_toolbar.GetDpi());
+	SM_ApplyThemeToFrame(m_hWnd);
 
 	CMenu *menu = GetSystemMenu(FALSE);
 	menu->AppendMenu(MF_SEPARATOR);
@@ -175,6 +180,11 @@ void CMainFrame::RecalcLayout(BOOL bNotify)
 			SWP_NOACTIVATE | SWP_SHOWWINDOW);
 	}
 	rectBorder.top += barHeight;
+	if (::IsWindow(m_pathBar.m_hWnd)) {
+		int pathHeight = m_pathBar.GetDesiredHeight();
+		m_pathBar.SetWindowPos(NULL, 0, rectBorder.top, width, pathHeight, SWP_NOZORDER | SWP_NOACTIVATE);
+		rectBorder.top += pathHeight;
+	}
 	int statusHeight = m_scanStatus.GetDesiredHeight();
 	if (statusHeight > 0) {
 		m_scanStatus.SetWindowPos(NULL, 0, rectBorder.bottom - statusHeight, width, statusHeight,
@@ -188,7 +198,7 @@ void CMainFrame::RecalcLayout(BOOL bNotify)
 		wnd = first;
 		while (1) {
 			if (wnd->m_hWnd != m_toolbar.m_hWnd && wnd->m_hWnd != m_scanNoticeButton.m_hWnd
-				&& wnd->m_hWnd != m_scanStatus.m_hWnd)
+				&& wnd->m_hWnd != m_scanStatus.m_hWnd && wnd->m_hWnd != m_pathBar.m_hWnd)
 				numwnds++;
 			if (wnd == last) break;
 			wnd = wnd->GetWindow(GW_HWNDNEXT);
@@ -200,7 +210,7 @@ void CMainFrame::RecalcLayout(BOOL bNotify)
 		wndnum = 0, wnd = first;
 		while (1) {
 			if (wnd->m_hWnd != m_toolbar.m_hWnd && wnd->m_hWnd != m_scanNoticeButton.m_hWnd
-				&& wnd->m_hWnd != m_scanStatus.m_hWnd) {
+				&& wnd->m_hWnd != m_scanStatus.m_hWnd && wnd->m_hWnd != m_pathBar.m_hWnd) {
 				wnd->SetWindowPos(NULL, rectBorder.left + (width * wndnum) / numwnds, rectBorder.top,
 					(width * (wndnum+1)) / numwnds - (width * wndnum) / numwnds,
 					rectBorder.bottom - rectBorder.top,
@@ -387,13 +397,37 @@ LRESULT CMainFrame::OnDpiChanged(WPARAM wParam, LPARAM lParam)
 		SetWindowPos(NULL, prc->left, prc->top, prc->right - prc->left, prc->bottom - prc->top,
 			SWP_NOZORDER | SWP_NOACTIVATE);
 	}
-	if (::IsWindow(m_toolbar.m_hWnd)) m_toolbar.Reload();
-	RecalcLayout(0);
+	ApplyAppearance();
 	if (theApp.m_view != NULL) {
 		((CFolderView*)theApp.m_view)->RecreateFonts();
 		theApp.m_view->Invalidate();
 	}
 	return 0;
+}
+
+void CMainFrame::ApplyAppearance(void)
+{
+	SM_ApplyThemeSetting(theApp.m_settings.theme);
+	SM_ApplyThemeToFrame(m_hWnd);
+	if (::IsWindow(m_toolbar.m_hWnd)) m_toolbar.Reload();
+	if (::IsWindow(m_pathBar.m_hWnd)) {
+		m_pathBar.SetUiFont(m_toolbar.GetUiFont(), m_toolbar.GetDpi());
+		m_pathBar.Relabel();
+		m_pathBar.ApplyTheme();
+	}
+	if (::IsWindow(m_scanStatus.m_hWnd)) m_scanStatus.Invalidate();
+	RecalcLayout(0);
+	if (theApp.m_view != NULL) theApp.m_view->Invalidate(FALSE);
+	// The caption repaints only when it changes; nudge it for the dark title bar.
+	SetWindowPos(NULL, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+}
+
+// Windows switched between light and dark app mode.
+void CMainFrame::OnSettingChange(UINT flags, LPCTSTR section)
+{
+	CFrameWnd::OnSettingChange(flags, section);
+	if (section != NULL && _wcsicmp(section, L"ImmersiveColorSet") == 0 && theApp.m_settings.theme == 0)
+		ApplyAppearance();
 }
 
 /////////////////////////////////////////////////////////////////////////////
@@ -557,8 +591,9 @@ void CMainToolBar::Rebuild(void)
 	}
 
 	int iconSize = MulDiv(16, (int)m_dpi, 96);
-	HIMAGELIST images = CreateGlyphImageList(iconSize, ::GetSysColor(COLOR_BTNTEXT));
-	HIMAGELIST disabled = CreateGlyphImageList(iconSize, ::GetSysColor(COLOR_GRAYTEXT));
+	const SM_Theme &theme = SM_CurrentTheme();
+	HIMAGELIST images = CreateGlyphImageList(iconSize, theme.text);
+	HIMAGELIST disabled = CreateGlyphImageList(iconSize, theme.dark ? RGB(110, 110, 110) : theme.grayText);
 	::SendMessageW(m_hWnd, TB_SETIMAGELIST, 0, (LPARAM)images);
 	::SendMessageW(m_hWnd, TB_SETDISABLEDIMAGELIST, 0, (LPARAM)disabled);
 	if (m_images != NULL) ImageList_Destroy(m_images);
@@ -621,11 +656,36 @@ void CMainToolBar::OnCustomDraw(NMHDR *pNotify, LRESULT *pResult)
 {
 	NMTBCUSTOMDRAW *cd = (NMTBCUSTOMDRAW *)pNotify;
 	*pResult = CDRF_DODEFAULT;
+	const SM_Theme &theme = SM_CurrentTheme();
 	if (cd->nmcd.dwDrawStage == CDDS_PREERASE) {
 		RECT rect;
 		::GetClientRect(m_hWnd, &rect);
-		::FillRect(cd->nmcd.hdc, &rect, ::GetSysColorBrush(COLOR_3DFACE));
+		::FillRect(cd->nmcd.hdc, &rect, theme.faceBrush);
 		*pResult = CDRF_SKIPDEFAULT;
+	}
+	else if (cd->nmcd.dwDrawStage == CDDS_PREPAINT && theme.dark) {
+		*pResult = CDRF_NOTIFYITEMDRAW;
+	}
+	else if (cd->nmcd.dwDrawStage == CDDS_ITEMPREPAINT && theme.dark) {
+		// Light labels; the light theme plate behind hot and checked buttons
+		// is replaced by a dark-grey one drawn here.
+		cd->clrText = (cd->nmcd.uItemState & CDIS_DISABLED) ? RGB(110, 110, 110) : theme.text;
+		COLORREF plate = theme.face;
+		if (cd->nmcd.uItemState & (CDIS_CHECKED | CDIS_SELECTED)) plate = RGB(68, 68, 68);
+		else if (cd->nmcd.uItemState & CDIS_HOT) plate = RGB(52, 52, 52);
+		if (plate != theme.face) {
+			HBRUSH brush = ::CreateSolidBrush(plate);
+			HPEN pen = ::CreatePen(PS_SOLID, 1, (cd->nmcd.uItemState & CDIS_CHECKED) ? RGB(96, 96, 96) : plate);
+			HGDIOBJ oldBrush = ::SelectObject(cd->nmcd.hdc, brush);
+			HGDIOBJ oldPen = ::SelectObject(cd->nmcd.hdc, pen);
+			int round = MulDiv(4, (int)m_dpi, 96);
+			::RoundRect(cd->nmcd.hdc, cd->nmcd.rc.left, cd->nmcd.rc.top, cd->nmcd.rc.right, cd->nmcd.rc.bottom, round, round);
+			::SelectObject(cd->nmcd.hdc, oldPen);
+			::SelectObject(cd->nmcd.hdc, oldBrush);
+			::DeleteObject(pen);
+			::DeleteObject(brush);
+		}
+		*pResult = TBCDRF_USECDCOLORS | TBCDRF_NOBACKGROUND | TBCDRF_NOEDGES | TBCDRF_NOOFFSET;
 	}
 }
 
@@ -633,7 +693,7 @@ BOOL CMainToolBar::OnEraseBkgnd(CDC *pDC)
 {
 	CRect rect;
 	GetClientRect(&rect);
-	pDC->FillSolidRect(&rect, ::GetSysColor(COLOR_3DFACE));
+	pDC->FillSolidRect(&rect, SM_CurrentTheme().face);
 	return TRUE;
 }
 void CMainToolBar::EnableState(int state, BOOL enabled)

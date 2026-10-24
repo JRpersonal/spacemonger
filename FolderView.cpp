@@ -11,6 +11,9 @@
 #include "DpiUtil.h"
 #include "TextFormat.h"
 #include "FileTypes.h"
+#include "Theme.h"
+#include "PathBar.h"
+#include <shlwapi.h>
 #include <unordered_map>
 
 IMPLEMENT_DYNCREATE(CFolderView, CFreeView)
@@ -366,6 +369,18 @@ void CFolderView::OnKeyDown(UINT key, UINT repeat, UINT flags)
 	case VK_DELETE: app->OnFileDelete(); break;
 	case VK_F5: app->OnFileRefresh(); break;
 	case 'E': if (::GetKeyState(VK_CONTROL) < 0) app->OnExport(); break;
+	case 'F':
+		if (::GetKeyState(VK_CONTROL) < 0) {
+			CMainFrame *frame = (CMainFrame *)GetTopLevelFrame();
+			if (frame != NULL) frame->m_pathBar.FocusSearch();
+		}
+		break;
+	case VK_ESCAPE:
+		if (!m_search.empty()) {
+			CMainFrame *frame = (CMainFrame *)GetTopLevelFrame();
+			if (frame != NULL) frame->m_pathBar.ClearSearch();
+		}
+		break;
 	default: CFreeView::OnKeyDown(key, repeat, flags); break;
 	}
 }
@@ -752,6 +767,8 @@ void CFolderView::UpdateTitleBar(void)
 		return;
 	}
 
+	UpdatePathBar();
+
 	CString title = L"";
 	ui64 size;
 
@@ -777,6 +794,114 @@ void CFolderView::UpdateTitleBar(void)
 
 	mainfrm->SetWindowText(title);
 }	
+
+// Path bar segments: the scanned root (C:\, D:\Fotos, \\PC01\c$), then each
+// folder down to the one the map shows.
+void CFolderView::UpdatePathBar(void)
+{
+	CMainFrame *frame = (CMainFrame *)GetTopLevelFrame();
+	if (frame == NULL || !::IsWindow(frame->m_pathBar.m_hWnd)) return;
+	std::vector<CPathBar::Segment> segments;
+	CFolderTree *tree = (CFolderTree *)GetDocument();
+	if (tree != NULL && rootfolder != NULL && !tree->m_path.IsEmpty()) {
+		std::vector<CFolder *> chain;
+		for (CFolder *f = rootfolder; f != NULL; f = f->parent) chain.push_back(f);
+		std::wstring rootLabel = PathUtil::RemoveLongPathPrefix((LPCWSTR)tree->m_path);
+		if (rootLabel.size() > 3 && rootLabel.back() == L'\\') rootLabel.pop_back();
+		segments.push_back({ rootLabel, chain.back() });
+		for (size_t i = chain.size() - 1; i-- > 0;) {
+			CFolder *f = chain[i];
+			segments.push_back({ f->parent->names[f->parentindex], f });
+		}
+	}
+	frame->m_pathBar.SetSegments(segments);
+}
+
+void CFolderView::ZoomTo(CFolder *folder)
+{
+	if (folder == NULL || folder == rootfolder) return;
+	rootfolder = folder;
+	zoomlevel = 0;
+	for (CFolder *parent = folder->parent; parent != NULL; parent = parent->parent) zoomlevel++;
+	OnUpdate(GetDocument());
+	UpdateTitleBar();
+}
+
+namespace {
+
+bool IsPseudoName(const wchar_t *name)
+{
+	return name == NULL || name[0] == L'<' || name[0] == L'|';
+}
+
+// Case folding for the whole BMP, built once: the search runs over every
+// name of a scan (millions on a system drive), and StrStrIW per name is
+// too slow for that.
+const wchar_t *FoldTable()
+{
+	static wchar_t *table = []() {
+		wchar_t *t = new wchar_t[65536];
+		for (int c = 0; c < 65536; ++c) t[c] = (wchar_t)c;
+		t[0xD800] = 0xD800;
+		::CharLowerBuffW(t + 1, 0xD7FF);	// surrogates stay as they are
+		::CharLowerBuffW(t + 0xE000, 0x2000);
+		return t;
+	}();
+	return table;
+}
+
+// needle is already folded.
+bool ContainsFolded(const wchar_t *haystack, const std::wstring &needle, const wchar_t *fold)
+{
+	if (needle.empty()) return true;
+	const wchar_t first = needle[0];
+	const size_t n = needle.size();
+	for (const wchar_t *p = haystack; *p != 0; ++p) {
+		if (fold[*p] != first) continue;
+		size_t i = 1;
+		while (i < n && p[i] != 0 && fold[p[i]] == needle[i]) ++i;
+		if (i == n) return true;
+	}
+	return false;
+}
+
+ui64 CountSearchMatches(const CFolder *folder, const std::wstring &needle, const wchar_t *fold)
+{
+	ui64 count = 0;
+	for (unsigned int i = 0; i < folder->cur; ++i) {
+		if (IsPseudoName(folder->names[i])) continue;
+		if (ContainsFolded(folder->names[i], needle, fold)) ++count;
+		if (folder->children[i] != NULL) count += CountSearchMatches(folder->children[i], needle, fold);
+	}
+	return count;
+}
+
+}
+
+bool CFolderView::SearchMatches(const TreemapNode *cur) const
+{
+	const wchar_t *name = (cur->source != NULL && cur->index != (ui32)-1)
+		? cur->source->names[cur->index] : cur->name;
+	return !IsPseudoName(name) && ContainsFolded(name, m_searchFolded, FoldTable());
+}
+
+void CFolderView::SetSearch(const std::wstring &text)
+{
+	if (text == m_search) return;
+	m_search = text;
+	const wchar_t *fold = FoldTable();
+	m_searchFolded = text;
+	for (wchar_t &c : m_searchFolded) c = fold[c];
+	ui64 matches = 0;
+	CFolderTree *tree = (CFolderTree *)GetDocument();
+	if (!m_search.empty() && tree != NULL && tree->GetRoot() != NULL) {
+		CWaitCursor wait;
+		matches = CountSearchMatches(tree->GetRoot(), m_searchFolded, fold);
+	}
+	CMainFrame *frame = (CMainFrame *)GetTopLevelFrame();
+	if (frame != NULL) frame->m_pathBar.SetMatchCount(!m_search.empty(), matches);
+	InvalidateRect(NULL, FALSE);
+}
 
 void CFolderView::BuildTitleReverse(CFolder *folder, CString &string)
 {
@@ -847,8 +972,9 @@ void CFolderView::OnDraw(CDC *pDC)
 	pDC->SelectPalette(&m_palette, 0);
 	pDC->RealizePalette();
 
-	DrawBox(pDC->m_hDC, ColorFlat, 0, 0, m_width, m_height);
-	FillBox(pDC->m_hDC, ColorFlat, 1, 1, m_width-2, m_height-2);
+	const SM_Theme &theme = SM_CurrentTheme();
+	DrawBox(pDC->m_hDC, theme.mapBrush, 0, 0, m_width, m_height);
+	FillBox(pDC->m_hDC, theme.mapBrush, 1, 1, m_width-2, m_height-2);
 
 	for (const auto &cur : m_layoutNodes)
 		MinimalDrawDisplayFolder(pDC, &cur, selected == &cur);
@@ -905,7 +1031,8 @@ static COLORREF SoftColor(COLORREF c)
 // folders where the user can actually free space.
 static COLORREF MuteColor(COLORREF c)
 {
-	const int keep = 30, base = 228;
+	const bool dark = SM_CurrentTheme().dark;
+	const int keep = dark ? 22 : 30, base = dark ? 50 : 228;
 	return RGB((GetRValue(c) * keep + base * (100 - keep)) / 100,
 		(GetGValue(c) * keep + base * (100 - keep)) / 100,
 		(GetBValue(c) * keep + base * (100 - keep)) / 100);
@@ -917,11 +1044,16 @@ void CFolderView::MinimalDrawDisplayFolder(CDC *pDC, const TreemapNode *cur, BOO
 
 	x = cur->x, y = cur->y, w = cur->w + 1, h = cur->h + 1;
 
-	const bool muted = (cur->flags & TREEMAP_FLAG_SYSTEM) != 0;
+	const SM_Theme &theme = SM_CurrentTheme();
+	// While searching, everything that does not match is washed out (system
+	// content that matches is shown normally); otherwise system content is.
+	const bool muted = cur->depth != -1 && (!m_search.empty()
+		? !SearchMatches(cur) : (cur->flags & TREEMAP_FLAG_SYSTEM) != 0);
+	const COLORREF mutedText = theme.dark ? RGB(165, 165, 165) : RGB(120, 120, 120);
 	if (cur->depth != -1) {
 		if (muted) {
 			CBrush outline;
-			outline.CreateSolidBrush(RGB(170, 170, 170));
+			outline.CreateSolidBrush(theme.dark ? RGB(90, 90, 90) : RGB(170, 170, 170));
 			DrawBox(pDC->m_hDC, outline, x, y, w, h);
 		}
 		else DrawBox(pDC->m_hDC, black, x, y, w, h);
@@ -949,7 +1081,7 @@ void CFolderView::MinimalDrawDisplayFolder(CDC *pDC, const TreemapNode *cur, BOO
 			}
 			else if (scheme == 3) {
 				// ...with folders kept neutral, so the types stand out.
-				int shade = 236 - (cur->depth % 4) * 8;
+				int shade = (theme.dark ? 160 : 236) - (cur->depth % 4) * 8;
 				color = RGB(shade, shade, shade);
 				bright = RGB(250, 250, 250);
 				dark = RGB(shade - 40, shade - 40, shade - 40);
@@ -971,10 +1103,10 @@ void CFolderView::MinimalDrawDisplayFolder(CDC *pDC, const TreemapNode *cur, BOO
 			}
 		}
 		else if (cur->flags & TREEMAP_FLAG_UNAVAILABLE)
-			color = bright = dark = RGB(200, 200, 200);
+			color = bright = dark = theme.dark ? RGB(75, 75, 75) : RGB(200, 200, 200);
 		else if (cur->flags & TREEMAP_FLAG_PENDING)
-			color = bright = dark = GetSysColor(COLOR_3DFACE);
-		else color = bright = dark = GetSysColor(COLOR_WINDOW);	// free space: empty, light
+			color = bright = dark = theme.mapBack;
+		else color = bright = dark = theme.freeFill;	// free space: empty
 
 		if (muted && !sel) {
 			color = MuteColor(color);
@@ -992,13 +1124,13 @@ void CFolderView::MinimalDrawDisplayFolder(CDC *pDC, const TreemapNode *cur, BOO
 			DrawBox(pDC->m_hDC, brush, x + 2, y + 2, w - 4, h - 4);
 			FillBox(pDC->m_hDC, brush, x + border, y + border, w - 2 * border, m_lineStep - border);
 			if (h > m_lineStep + border && w > 2 * border) {
-				FillBox(pDC->m_hDC, ColorFlat, x + border, y + m_lineStep,
+				FillBox(pDC->m_hDC, theme.mapBrush, x + border, y + m_lineStep,
 					w - 2 * border, h - m_lineStep - border);
 				if (cur->flags & TREEMAP_FLAG_SCANNING) {
 					// Still being read: a light hatch until its contents arrive.
 					CBrush hatch;
-					hatch.CreateHatchBrush(HS_BDIAGONAL, RGB(205, 205, 205));
-					COLORREF oldBk = pDC->SetBkColor(GetSysColor(COLOR_3DFACE));
+					hatch.CreateHatchBrush(HS_BDIAGONAL, theme.dark ? RGB(80, 80, 80) : RGB(205, 205, 205));
+					COLORREF oldBk = pDC->SetBkColor(theme.mapBack);
 					int oldMode = pDC->SetBkMode(OPAQUE);
 					FillBox(pDC->m_hDC, hatch, x + border, y + m_lineStep,
 						w - 2 * border, h - m_lineStep - border);
@@ -1013,7 +1145,7 @@ void CFolderView::MinimalDrawDisplayFolder(CDC *pDC, const TreemapNode *cur, BOO
 			// Free, unreadable and pending blocks get a visible edge; the
 			// unreadable one is hatched so it never reads as free space.
 			CBrush edge;
-			edge.CreateSolidBrush(GetSysColor(COLOR_3DSHADOW));
+			edge.CreateSolidBrush(theme.line);
 			DrawBox(pDC->m_hDC, edge, x, y, w, h);
 			if ((cur->flags & TREEMAP_FLAG_UNAVAILABLE) && w > 4 && h > 4) {
 				CBrush hatch;
@@ -1032,8 +1164,8 @@ void CFolderView::MinimalDrawDisplayFolder(CDC *pDC, const TreemapNode *cur, BOO
 		// reads as "still to come" next to the solid free-space block.
 		if (w > 4 && h > 4) {
 			CBrush hatch;
-			hatch.CreateHatchBrush(HS_BDIAGONAL, GetSysColor(COLOR_3DSHADOW));
-			COLORREF oldBk = pDC->SetBkColor(GetSysColor(COLOR_3DFACE));
+			hatch.CreateHatchBrush(HS_BDIAGONAL, theme.line);
+			COLORREF oldBk = pDC->SetBkColor(theme.mapBack);
 			int oldMode = pDC->SetBkMode(OPAQUE);
 			FillBox(pDC->m_hDC, hatch, x + 2, y + 2, w - 4, h - 4);
 			pDC->SetBkMode(oldMode);
@@ -1044,7 +1176,9 @@ void CFolderView::MinimalDrawDisplayFolder(CDC *pDC, const TreemapNode *cur, BOO
 
 			int savedClip = pDC->SaveDC();
 			pDC->IntersectClipRect(x, y, x + w, y + h);	// nests inside a caller's clip
+			pDC->SetTextColor(theme.freeText);
 			pDC->TextOut(x + (w - labelSize.cx) / 2, y + (h - labelSize.cy) / 2, CurLang->scanning);
+			pDC->SetTextColor(RGB(0, 0, 0));
 			pDC->RestoreDC(savedClip);
 		}
 		return;
@@ -1091,16 +1225,18 @@ void CFolderView::MinimalDrawDisplayFolder(CDC *pDC, const TreemapNode *cur, BOO
 					CString(SM_FormatBytes(ft->freespace).c_str()) + L" " + CurLang->free + L" / "
 						+ SM_FormatBytes(ft->totalspace).c_str() + L" " + CurLang->total,
 				};
+				pDC->SetTextColor(theme.freeText);
 				for (int line = 0; line < 2; ++line) {
 					size = pDC->GetTextExtent(lines[line]);
 					tx = size.cx > w - 2 ? x + 2 : x + (w - size.cx) / 2;
 					pDC->TextOut(tx, ty - step + line * step, lines[line]);
 				}
+				pDC->SetTextColor(RGB(0, 0, 0));
 			}
 		}
 		else {
 			if (sel) pDC->SetTextColor(RGB(0xFF,0xFF,0xFF));
-			else if (muted) pDC->SetTextColor(RGB(120, 120, 120));
+			else if (muted) pDC->SetTextColor(mutedText);
 			if (cur->flags & TREEMAP_FLAG_UNAVAILABLE) {
 				// The block is an estimate, so show its label and size without
 				// treating it as a real file path. Word-wrapped and centred:
@@ -1114,7 +1250,7 @@ void CFolderView::MinimalDrawDisplayFolder(CDC *pDC, const TreemapNode *cur, BOO
 				pDC->DrawText(text, &measure, DT_CENTER | DT_WORDBREAK | DT_NOPREFIX | DT_CALCRECT);
 				int offset = max(0, (box.Height() - measure.Height()) / 2);
 				box.top += offset;
-				pDC->SetTextColor(RGB(64, 64, 64));
+				pDC->SetTextColor(theme.dark ? RGB(210, 210, 210) : RGB(64, 64, 64));
 				pDC->DrawText(text, &box, DT_CENTER | DT_WORDBREAK | DT_NOPREFIX);
 				pDC->SetTextColor(RGB(0, 0, 0));
 				pDC->RestoreDC(savedClip);
@@ -1210,6 +1346,8 @@ void CFolderView::UpdateLiveScanLayout(AsyncScanEngine& engine, ui64 totalspace,
 	lastcur = NULL;
 
 	StartCrossfade(kCrossfadeMs);
+	// Free space belongs to a drive; a folder scan shows only the folder.
+	if (!wholeVolume) freespace = 0;
 	engine.GenerateLiveLayout(m_width - 1, m_height - 1, totalspace, freespace, config,
 		m_layoutNodes, m_liveNameStorage, wholeVolume);
 
@@ -1289,6 +1427,11 @@ void CFolderView::SetDocument(CFreeDoc *doc)
 		rootfolder = ((CFolderTree *)doc)->GetRoot();
 	else rootfolder = NULL;
 	zoomlevel = 0;
+
+	// A running search counts the matches of the new scan.
+	std::wstring search;
+	search.swap(m_search);
+	SetSearch(search);
 
 	UpdateTitleBar();
 	OnSize(0, m_width, m_height);

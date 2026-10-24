@@ -21,6 +21,13 @@ every release needs a `## [X.Y.Z]` section here first.
 - Status strip with progress instead of the scan dialog; drive dialog opens
   at start with the first drive selected; richer tooltips with full path.
 - Donation links (GitHub Sponsors, Ko-fi, PayPal).
+- Path bar between toolbar and map: click a folder to go back to it.
+- Search (`Ctrl+F`): matching files and folders keep their colours, the
+  rest is washed out; the bar shows the number of matches.
+- Colour legend for *By file type*.
+- Dark mode (toolbar, path bar, status strip, map background, title bar),
+  automatic with Windows or chosen in the settings.
+- Folder scans no longer show the drive's free space as a block.
 
 ### Changed
 - Windows look: Common Controls v6, Fluent icon toolbar, Segoe UI dialogs,

@@ -13,6 +13,7 @@
 #include "CommandPolicy.h"
 #include "PathUtil.h"
 #include "SpaceReport.h"
+#include "Theme.h"
 #include <shobjidl.h>
 #include <shlobj.h>
 
@@ -231,6 +232,7 @@ BOOL CSpaceMonger::InitInstance()
 	}
 	m_settings.Save();
 	if (start.hideSystem) m_settings.hide_system = TRUE;
+	SM_ApplyThemeSetting(m_settings.theme);
 
 	int showcmd = m_settings.showcmd;
 	RECT rect = m_settings.rect;
@@ -567,7 +569,7 @@ void CSpaceMonger::OnSettings(void)
 			m_view->OnUpdate(m_document);
 			((CFolderView *)m_view)->UpdateTitleBar();
 		}
-		((CMainFrame *)m_mainframe)->m_toolbar.Reload();
+		((CMainFrame *)m_mainframe)->ApplyAppearance();
 	}
 }
 
