@@ -1,0 +1,605 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SpaceMonger</title>
+<!--
+  SpaceMonger space report. SpaceMonger.exe fills in the scan below
+  (SM_HTML_DATA_MARKER in HtmlReport.h); the page needs no network and
+  sends nothing anywhere. The map is laid out like the window does it
+  (TreemapLayout.cpp, SizeFolders) and uses the same colours.
+-->
+<style>
+:root {
+  --bg: #f3f3f3; --card: #ffffff; --text: #1b1b1b; --muted: #5f5f5f; --line: #dcdcdc;
+  --accent: #005fb8; --accent-text: #ffffff; --bar: #005fb8; --bar-back: #e3e3e3;
+  --map-back: #f0f0f0; --map-line: #a0a0a0; --free: #ffffff; --free-text: #000000; --unreadable: #c8c8c8;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #202020; --card: #2b2b2b; --text: #f0f0f0; --muted: #b0b0b0; --line: #3c3c3c;
+    --accent: #60cdff; --accent-text: #000000; --bar: #60cdff; --bar-back: #454545;
+    --map-back: #2d2d2d; --map-line: #464646; --free: #1c1c1c; --free-text: #c8c8c8; --unreadable: #4b4b4b;
+    color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text);
+  font: 14px/1.45 "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif; }
+main { max-width: 1600px; margin: 0 auto; padding: 20px 16px 32px; }
+header { display: flex; flex-wrap: wrap; gap: 16px 32px; align-items: flex-end; margin-bottom: 16px; }
+h1 { font-size: 26px; font-weight: 600; margin: 0; line-height: 1.2; }
+.sub { color: var(--muted); margin-top: 2px; }
+.usage { flex: 1 1 320px; max-width: 520px; }
+.usage-text { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 6px; }
+.usage-text b { font-weight: 600; }
+.bar { height: 10px; border-radius: 5px; background: var(--bar-back); overflow: hidden; }
+.bar > div { height: 100%; background: var(--bar); border-radius: 5px; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 8px; }
+.toolbar { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; padding: 8px 12px;
+  border-bottom: 1px solid var(--line); min-height: 44px; }
+.crumbs { flex: 1 1 auto; display: flex; flex-wrap: wrap; align-items: center; gap: 2px; min-width: 0; }
+.crumbs button { border: 0; background: none; color: var(--accent); font: inherit; padding: 2px 4px;
+  border-radius: 4px; cursor: pointer; }
+.crumbs button:hover { background: var(--bar-back); }
+.crumbs button:last-child { color: var(--text); font-weight: 600; cursor: default; background: none; }
+.crumbs .sep { color: var(--muted); }
+label.toggle { display: flex; gap: 6px; align-items: center; color: var(--muted); cursor: pointer; user-select: none; }
+.mapwrap { position: relative; height: max(420px, 64vh); }
+canvas { display: block; width: 100%; height: 100%; border-radius: 0 0 8px 8px; cursor: default; }
+.tip { position: fixed; pointer-events: none; z-index: 10; max-width: 420px; padding: 8px 10px;
+  background: var(--card); color: var(--text); border: 1px solid var(--line); border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(0,0,0,.18); font-size: 13px; display: none; }
+.tip .name { font-weight: 600; word-break: break-all; }
+.tip .path { color: var(--muted); word-break: break-all; }
+.hint { color: var(--muted); font-size: 12px; padding: 6px 12px 0; }
+.below { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr); gap: 16px; margin-top: 16px; }
+@media (max-width: 1100px) { .below { grid-template-columns: minmax(0, 1fr); } }
+.panel { padding: 14px 16px; }
+.panel h2 { font-size: 16px; font-weight: 600; margin: 0 0 10px; }
+.detail .name { font-size: 16px; font-weight: 600; word-break: break-all; }
+.detail .path { color: var(--muted); word-break: break-all; margin-bottom: 8px; }
+.detail dl { display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; margin: 0 0 12px; }
+.detail dt { color: var(--muted); }
+.detail dd { margin: 0; }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.actions a, .actions button { display: inline-block; font: inherit; padding: 5px 12px; border-radius: 4px;
+  border: 1px solid var(--line); background: var(--card); color: var(--text); text-decoration: none; cursor: pointer; }
+.actions .primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+.actions a:hover, .actions button:hover { filter: brightness(0.95); }
+.empty { color: var(--muted); }
+ol { list-style: none; margin: 0; padding: 0; }
+ol li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 12px; padding: 6px 8px; margin: 0 -8px;
+  border-radius: 4px; cursor: pointer; }
+ol li:hover { background: var(--bar-back); }
+ol li .n { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+ol li .s { font-variant-numeric: tabular-nums; text-align: right; }
+ol li .p { grid-column: 1 / -1; color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden;
+  text-overflow: ellipsis; direction: rtl; text-align: left; }
+footer { color: var(--muted); font-size: 12px; margin-top: 20px; }
+footer a { color: var(--accent); }
+.nodata { padding: 40px; text-align: center; color: var(--muted); }
+</style>
+</head>
+<body>
+<main id="app"><div class="nodata">SpaceMonger</div></main>
+<div class="tip" id="tip"></div>
+<script>
+"use strict";
+const DATA = /*SPACEMONGER_DATA*/null;
+
+const TEXT = {
+  en: {
+    title: "Disk space", of: "of", used: "used", free: "free", total: "total", full: "% full",
+    scanned: "Scanned", hideSystem: "Hide Windows folders", freeSpace: "Free space",
+    unreadable: "Not readable", unreadableTip: "Space the scan could not read (other users' folders, system files). Run as administrator to see it.",
+    smaller: "{n} smaller items", files: "Files", modified: "Modified", share: "Share", size: "Size",
+    zoomIn: "Zoom in", explorer: "Show in Explorer", copy: "Copy path", copied: "Copied",
+    explorerHint: "Opens Explorer when SpaceMonger is set up on this PC.",
+    biggestFolders: "Biggest folders", biggestFiles: "Biggest files", selected: "Selected",
+    pick: "Click a box in the map or a line in the lists. Double-click a folder to zoom in.",
+    mapHint: "Every box is a folder or file, sized by the space it takes. Hover for details, double-click a folder to zoom in, Esc to go back.",
+    system: "Managed by Windows", made: "Made with", noData: "This page contains no scan."
+  },
+  de: {
+    title: "Speicherplatz", of: "von", used: "belegt", free: "frei", total: "gesamt", full: " % voll",
+    scanned: "Gescannt", hideSystem: "Windows-Ordner ausblenden", freeSpace: "Freier Speicher",
+    unreadable: "Nicht lesbar", unreadableTip: "Platz, den der Scan nicht lesen konnte (Ordner anderer Benutzer, Systemdateien). Als Administrator ausführen, um ihn zu sehen.",
+    smaller: "{n} kleinere Einträge", files: "Dateien", modified: "Geändert", share: "Anteil", size: "Größe",
+    zoomIn: "Hineinzoomen", explorer: "Im Explorer zeigen", copy: "Pfad kopieren", copied: "Kopiert",
+    explorerHint: "Öffnet den Explorer, wenn SpaceMonger auf diesem PC eingerichtet ist.",
+    biggestFolders: "Größte Ordner", biggestFiles: "Größte Dateien", selected: "Ausgewählt",
+    pick: "Klicken Sie auf ein Feld in der Karte oder auf eine Zeile in den Listen. Doppelklick auf einen Ordner zoomt hinein.",
+    mapHint: "Jedes Feld ist ein Ordner oder eine Datei, so groß wie der Platz, den sie belegen. Mauszeiger für Details, Doppelklick auf einen Ordner zoomt hinein, Esc geht zurück.",
+    system: "Von Windows verwaltet", made: "Erstellt mit", noData: "Diese Seite enthält keinen Scan."
+  },
+  fr: {
+    title: "Espace disque", of: "sur", used: "utilisé", free: "libre", total: "total", full: " % plein",
+    scanned: "Analysé", hideSystem: "Masquer les dossiers Windows", freeSpace: "Espace libre",
+    unreadable: "Illisible", unreadableTip: "Espace que l'analyse n'a pas pu lire (dossiers d'autres utilisateurs, fichiers système). Exécutez en administrateur pour le voir.",
+    smaller: "{n} éléments plus petits", files: "Fichiers", modified: "Modifié", share: "Part", size: "Taille",
+    zoomIn: "Zoomer", explorer: "Afficher dans l'Explorateur", copy: "Copier le chemin", copied: "Copié",
+    explorerHint: "Ouvre l'Explorateur si SpaceMonger est configuré sur ce PC.",
+    biggestFolders: "Plus grands dossiers", biggestFiles: "Plus grands fichiers", selected: "Sélection",
+    pick: "Cliquez sur une case de la carte ou une ligne des listes. Double-cliquez sur un dossier pour zoomer.",
+    mapHint: "Chaque case est un dossier ou un fichier, à la taille de l'espace occupé. Survolez pour les détails, double-cliquez sur un dossier pour zoomer, Échap pour revenir.",
+    system: "Géré par Windows", made: "Créé avec", noData: "Cette page ne contient aucune analyse."
+  }
+};
+const LANG = DATA && TEXT[DATA.lang] ? DATA.lang : "en";
+const T = TEXT[LANG];
+const LOCALE = { en: "en-US", de: "de-DE", fr: "fr-FR" }[LANG];
+
+// Classic SpaceMonger palette (FolderView.cpp, BoxColors): colour, bright and
+// dark edge per depth.
+const COLOR = ["#ff7f7f", "#ffbf7f", "#ffff00", "#7fff7f", "#7fffff", "#bfbfff", "#bfbfbf", "#ff7fff"];
+const BRIGHT = ["#ffbfbf", "#ffdfbf", "#ffffbf", "#bfffbf", "#dfffff", "#dfdfff", "#dfdfdf", "#ffbfff"];
+const DARK = ["#bf7f7f", "#bf9f5f", "#bfbf3f", "#7fbf7f", "#7fbfbf", "#9f9fff", "#9f9f9f", "#bf7fbf"];
+
+const darkMode = matchMedia("(prefers-color-scheme: dark)");
+function css(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+
+// Windows content drawn washed out (FolderView.cpp, MuteColor).
+function mute(hex) {
+  const dark = darkMode.matches, keep = dark ? 22 : 30, base = dark ? 50 : 228;
+  const v = parseInt(hex.slice(1), 16);
+  const mix = c => Math.round((c * keep + base * (100 - keep)) / 100);
+  return `rgb(${mix(v >> 16)},${mix((v >> 8) & 255)},${mix(v & 255)})`;
+}
+
+const numberFormat = new Intl.NumberFormat(LOCALE, { maximumFractionDigits: 1 });
+const intFormat = new Intl.NumberFormat(LOCALE);
+function bytes(n) {
+  const units = ["B", "KB", "MB", "GB", "TB", "PB"];
+  let i = 0;
+  while (n >= 1024 && i < units.length - 1) { n /= 1024; i++; }
+  const digits = i === 0 || n >= 100 ? 0 : n >= 10 ? 1 : 2;
+  return new Intl.NumberFormat(LOCALE, { maximumFractionDigits: digits }).format(n) + " " + units[i];
+}
+function percent(part, whole) { return whole > 0 ? numberFormat.format(part * 100 / whole) + " %" : ""; }
+function date(text) {
+  if (!text) return "";
+  const [y, m, d] = text.split("-").map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString(LOCALE, { year: "numeric", month: "short", day: "numeric" });
+}
+function el(tag, attrs, ...children) {
+  const e = document.createElement(tag);
+  for (const k in attrs || {}) {
+    if (k === "class") e.className = attrs[k];
+    else if (k.startsWith("on")) e.addEventListener(k.slice(2), attrs[k]);
+    else e.setAttribute(k, attrs[k]);
+  }
+  for (const c of children) if (c != null) e.append(c);
+  return e;
+}
+
+// ---- Tree -----------------------------------------------------------------
+// Data entries: file ["name", size, "date"(, 1 = system)], folder
+// ["name", size, "date", [children], files, restCount, restSize, system].
+function buildTree(entry, parent) {
+  const folder = Array.isArray(entry[3]);
+  const node = { name: entry[0], size: entry[1], date: entry[2], parent, folder,
+    system: folder ? entry[7] === 1 : entry[3] === 1 };
+  node.system = node.system || (parent ? parent.system : false);
+  node.path = parent ? parent.path + node.name + (folder ? "\\" : "") : DATA.path;
+  if (folder) {
+    node.files = entry[4];
+    node.kids = entry[3].map(e => buildTree(e, node));
+    if (entry[6] > 0) node.kids.push({ rest: true, count: entry[5], size: entry[6], parent: node, system: node.system, name: "", owner: node });
+    node.kids.sort((a, b) => b.size - a.size);
+  }
+  return node;
+}
+
+// ---- Layout (TreemapLayout.cpp) --------------------------------------------
+let S = 1, BORDER = 3, TITLE = 17, HMIN = 32, VMIN = 24;
+
+function visibleKids(folder, top) {
+  return folder.kids.filter(k => k.size > 0 && !(state.hideSystem && top && k.system));
+}
+
+function addNode(out, item, depth, x, y, w, h, placeholder) {
+  out.push({ item, depth, x, y, w, h, placeholder: !!placeholder });
+}
+
+function sizeFolders(x, y, w, h, items, depth, out) {
+  if (!items.length) return;
+  const list1 = [], list2 = [];
+  let sum1 = 0, sum2 = 0;
+  for (const it of items) {
+    if (sum1 <= sum2) { list1.push(it); sum1 += it.size; } else { list2.push(it); sum2 += it.size; }
+  }
+  if (sum1 + sum2 <= 0) return;
+  let x1, y1, w1, h1, x2, y2, w2, h2;
+  if (w > h) {
+    const split = Math.floor(w * sum1 / (sum1 + sum2));
+    x1 = x; y1 = y; w1 = split; h1 = h; x2 = x + split; y2 = y; w2 = w - split; h2 = h;
+  } else {
+    const split = Math.floor(h * sum1 / (sum1 + sum2));
+    x1 = x; y1 = y; w1 = w; h1 = split; x2 = x; y2 = y + split; w2 = w; h2 = h - split;
+  }
+  place(x1, y1, w1, h1, list1, depth, out);
+  place(x2, y2, w2, h2, list2, depth, out);
+}
+
+function place(x, y, w, h, list, depth, out) {
+  if (!list.length) return;
+  if (list.length > 1 && w > HMIN && h > VMIN) { sizeFolders(x, y, w, h, list, depth, out); return; }
+  const it = list[0];
+  if (w > HMIN && h > VMIN && !it.rest) {
+    addNode(out, it, depth, x, y, w, h, false);
+    if (it.folder) layoutFolder(x + BORDER, y + TITLE, w - 2 * BORDER, h - TITLE - BORDER, it, depth + 1, out, false);
+  } else {
+    // Too small to draw one by one: a block in the folder's colour.
+    addNode(out, it, depth, x, y, w, h, true);
+  }
+}
+
+function layoutFolder(x, y, w, h, folder, depth, out, top) {
+  if (w <= 0 || h <= 0) return;
+  sizeFolders(x, y, w, h, visibleKids(folder, top), depth, out);
+}
+
+function splitRect(x, y, w, h, num, den) {
+  if (den <= 0) { num = 0; den = 1; }
+  if (num > den) num = den;
+  if (w > h) {
+    const s = Math.floor(w * num / den);
+    return [[x, y, s, h], [x + s, y, w - s, h]];
+  }
+  const s = Math.floor(h * num / den);
+  return [[x, y, w, s], [x, y + s, w, h - s]];
+}
+
+function layout(W, H) {
+  const out = [];
+  const zoom = state.zoom;
+  if (zoom !== state.root || !DATA.whole) {
+    layoutFolder(0, 0, W, H, zoom, 0, out, zoom === state.root);
+    return out;
+  }
+  // Whole drive (TreemapEngine::ComputeVolumeLayout): free space split off
+  // first, then the used area into scanned content and the unreadable rest.
+  const kids = visibleKids(zoom, true);
+  const scanned = kids.reduce((s, k) => s + k.size, 0);
+  const unreadable = state.hideSystem ? 0 : DATA.unreadable;
+  const used = scanned + unreadable;
+  let area = [0, 0, W, H];
+  if (DATA.free > 0) {
+    const [u, f] = splitRect(0, 0, W, H, used, used + DATA.free);
+    out.push({ special: "free", x: f[0], y: f[1], w: f[2], h: f[3] });
+    area = u;
+  }
+  const [s, r] = splitRect(area[0], area[1], area[2], area[3], scanned, used);
+  if (unreadable > 0 && r[2] > 0 && r[3] > 0) out.push({ special: "unreadable", x: r[0], y: r[1], w: r[2], h: r[3] });
+  sizeFolders(s[0], s[1], s[2], s[3], kids, 0, out);
+  return out;
+}
+
+// ---- Drawing (FolderView.cpp, MinimalDrawDisplayFolder) --------------------
+const canvas = document.createElement("canvas");
+const ctx = canvas.getContext("2d");
+let nodes = [];
+
+function fill(color, x, y, w, h) { if (w > 0 && h > 0) { ctx.fillStyle = color; ctx.fillRect(x, y, w, h); } }
+function frame(color, x, y, w, h) {
+  fill(color, x, y, w, 1); fill(color, x, y + h - 1, w, 1);
+  fill(color, x, y, 1, h); fill(color, x + w - 1, y, 1, h);
+}
+
+function fitText(text, width) {
+  if (ctx.measureText(text).width <= width) return text;
+  let lo = 0, hi = text.length;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (ctx.measureText(text.slice(0, mid) + "…").width <= width) lo = mid; else hi = mid - 1;
+  }
+  return lo > 0 ? text.slice(0, lo) + "…" : "";
+}
+
+function hatch(x, y, w, h, color) {
+  ctx.save();
+  ctx.beginPath(); ctx.rect(x, y, w, h); ctx.clip();
+  ctx.strokeStyle = color; ctx.lineWidth = Math.max(1, S);
+  const step = Math.round(8 * S);
+  ctx.beginPath();
+  for (let i = -h; i < w; i += step) { ctx.moveTo(x + i, y + h); ctx.lineTo(x + i + h, y); }
+  ctx.stroke();
+  ctx.restore();
+}
+
+function centredLines(lines, x, y, w, h, color) {
+  const line = Math.round(15 * S);
+  const fitting = [];
+  for (const t of lines) { if ((fitting.length + 1) * line <= h - 2) fitting.push(t); }
+  let ty = y + Math.floor((h - fitting.length * line) / 2);
+  ctx.fillStyle = color;
+  for (const t of fitting) {
+    const s = fitText(t, w - 4 * S);
+    if (s) ctx.fillText(s, x + Math.floor((w - ctx.measureText(s).width) / 2), ty + Math.round(11.5 * S));
+    ty += line;
+  }
+}
+
+function draw() {
+  const W = canvas.width, H = canvas.height;
+  ctx.font = `${Math.round(12 * S)}px "Segoe UI", system-ui, sans-serif`;
+  fill(css("--map-back"), 0, 0, W, H);
+  const used = DATA.total - DATA.free;
+  for (const n of nodes) {
+    const x = n.x, y = n.y, w = n.w + 1, h = n.h + 1;
+    if (n.special) {
+      const free = n.special === "free";
+      fill(free ? css("--free") : css("--unreadable"), x, y, w, h);
+      if (!free) hatch(x + 1, y + 1, w - 2, h - 2, "rgba(150,150,150,.9)");
+      frame(css("--map-line"), x, y, w, h);
+      const lines = free
+        ? [percent(DATA.free, DATA.total) + " " + T.free, bytes(DATA.free) + " " + T.free + " / " + bytes(DATA.total) + " " + T.total]
+        : [T.unreadable, bytes(DATA.unreadable)];
+      centredLines(lines, x, y, w, h, css("--free-text"));
+      continue;
+    }
+    const it = n.item, d = n.depth & 7;
+    let color = COLOR[d], bright = BRIGHT[d], dark = DARK[d];
+    const muted = it.system;
+    if (muted) { color = mute(color); bright = mute(bright); dark = mute(dark); }
+    const hovered = state.hover === n.item, selected = state.selected === n.item;
+    // The box under the mouse lights up, as with the window's highlight setting.
+    if (hovered) { dark = color; color = bright; bright = "#ffffff"; }
+    frame(muted ? (darkMode.matches ? "#5a5a5a" : "#aaaaaa") : "#000000", x, y, w, h);
+    if (w <= 2 || h <= 2) continue;
+    fill(bright, x + 1, y + 1, w - 2, 1); fill(bright, x + 1, y + 1, 1, h - 2);
+    fill(dark, x + 1, y + h - 2, w - 2, 1); fill(dark, x + w - 2, y + 1, 1, h - 2);
+    if (it.folder && !n.placeholder) {
+      frame(color, x + 2, y + 2, w - 4, h - 4);
+      fill(color, x + BORDER, y + BORDER, w - 2 * BORDER, TITLE - BORDER);
+      fill(css("--map-back"), x + BORDER, y + TITLE, w - 2 * BORDER, h - TITLE - BORDER);
+    } else fill(color, x + 2, y + 2, w - 4, h - 4);
+
+    if (!n.placeholder) {
+      ctx.save();
+      ctx.beginPath(); ctx.rect(x, y, w, h); ctx.clip();
+      ctx.fillStyle = muted ? (darkMode.matches ? "#a5a5a5" : "#787878") : "#000000";
+      if (it.folder) {
+        const s = fitText(it.name + "  " + bytes(it.size), w - 8 * S);
+        ctx.fillText(s, x + Math.round(5 * S), y + BORDER + Math.round(11 * S));
+      } else {
+        const lines = [it.name, bytes(it.size)];
+        if (it.date) lines.push(date(it.date));
+        centredLines(lines, x, y, w, h, ctx.fillStyle);
+      }
+      ctx.restore();
+    }
+    if (selected) {
+      const t = Math.max(2, Math.round(2 * S));
+      for (let i = 0; i < t; i++) frame(css("--accent"), x + i, y + i, w - 2 * i, h - 2 * i);
+    }
+  }
+}
+
+function relayout() {
+  const wrap = canvas.parentElement;
+  S = window.devicePixelRatio || 1;
+  canvas.width = Math.max(1, Math.round(wrap.clientWidth * S));
+  canvas.height = Math.max(1, Math.round(wrap.clientHeight * S));
+  BORDER = Math.max(3, Math.round(3 * S));
+  TITLE = Math.round(17 * S);
+  HMIN = Math.round(32 * S); VMIN = Math.round(24 * S);
+  nodes = layout(canvas.width - 1, canvas.height - 1);
+  draw();
+}
+
+// Innermost box under a point; nodes are in pre-order, so the last hit is deepest.
+function hit(ev) {
+  const r = canvas.getBoundingClientRect();
+  const px = (ev.clientX - r.left) * S, py = (ev.clientY - r.top) * S;
+  let best = null;
+  for (const n of nodes) if (px >= n.x && py >= n.y && px <= n.x + n.w && py <= n.y + n.h) best = n;
+  return best;
+}
+
+// ---- Page -----------------------------------------------------------------
+const state = { root: null, zoom: null, hover: null, selected: null, hideSystem: false };
+const tip = document.getElementById("tip");
+
+function itemTitle(it) { return it.rest ? T.smaller.replace("{n}", intFormat.format(it.count)) : it.name; }
+function itemPath(it) { return it.rest ? it.owner.path : it.path; }
+function shareOfWhole(size) { return percent(size, DATA.whole ? DATA.total - DATA.free : DATA.scanned); }
+
+function showTip(ev, n) {
+  if (!n) { tip.style.display = "none"; return; }
+  tip.replaceChildren();
+  if (n.special) {
+    const free = n.special === "free";
+    tip.append(el("div", { class: "name" }, free ? T.freeSpace : T.unreadable),
+      el("div", {}, bytes(free ? DATA.free : DATA.unreadable) + (free ? " · " + percent(DATA.free, DATA.total) : "")));
+    if (!free) tip.append(el("div", { class: "path" }, T.unreadableTip));
+  } else {
+    const it = n.item;
+    tip.append(el("div", { class: "name" }, itemTitle(it)), el("div", { class: "path" }, itemPath(it)),
+      el("div", {}, bytes(it.size) + " · " + shareOfWhole(it.size)));
+    if (it.folder) tip.append(el("div", {}, intFormat.format(it.files) + " " + T.files));
+    if (it.date) tip.append(el("div", {}, T.modified + ": " + date(it.date)));
+    if (it.system) tip.append(el("div", { class: "path" }, T.system));
+  }
+  tip.style.display = "block";
+  const pad = 16, tw = tip.offsetWidth, th = tip.offsetHeight;
+  let tx = ev.clientX + pad, ty = ev.clientY + pad;
+  if (tx + tw > innerWidth - 8) tx = Math.max(8, ev.clientX - tw - pad);
+  if (ty + th > innerHeight - 8) ty = Math.max(8, ev.clientY - th - pad);
+  tip.style.left = tx + "px"; tip.style.top = ty + "px";
+}
+
+function zoomTo(folder) {
+  state.zoom = folder || state.root;
+  state.hover = null;
+  renderCrumbs();
+  relayout();
+}
+
+function select(it) {
+  state.selected = it;
+  renderDetail();
+  draw();
+}
+
+// Shows an item from the lists: zoom so that it is in view, then select it.
+function reveal(it) {
+  let target = it.parent || state.root;
+  if (state.hideSystem && it.system) { state.hideSystem = false; document.getElementById("hidesys").checked = false; }
+  zoomTo(target === state.root ? state.root : target);
+  select(it);
+}
+
+let crumbs, detail, hint;
+
+function renderCrumbs() {
+  const chain = [];
+  for (let f = state.zoom; f; f = f.parent) chain.unshift(f);
+  crumbs.replaceChildren();
+  chain.forEach((f, i) => {
+    if (i > 0) crumbs.append(el("span", { class: "sep" }, "›"));
+    const label = i === 0 ? DATA.path.replace(/\\$/, "") || DATA.path : f.name;
+    crumbs.append(el("button", { type: "button", onclick: () => { if (f !== state.zoom) zoomTo(f); } }, label));
+  });
+}
+
+function linkFor(it) {
+  let path = itemPath(it);
+  if (path.length > 3) path = path.replace(/\\$/, "");
+  return "spacemonger:show?" + encodeURIComponent(path);
+}
+
+function copyText(text, button) {
+  const done = () => { const old = button.textContent; button.textContent = T.copied; setTimeout(() => button.textContent = old, 1200); };
+  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done, () => legacyCopy(text) && done());
+  else if (legacyCopy(text)) done();
+}
+function legacyCopy(text) {
+  const area = el("textarea", {}, text);
+  document.body.append(area); area.select();
+  let ok = false; try { ok = document.execCommand("copy"); } catch (e) {}
+  area.remove(); return ok;
+}
+
+function renderDetail() {
+  const it = state.selected;
+  detail.replaceChildren(el("h2", {}, T.selected));
+  if (!it) { detail.append(el("div", { class: "empty" }, T.pick)); return; }
+  const dl = el("dl", {},
+    el("dt", {}, T.size), el("dd", {}, bytes(it.size)),
+    el("dt", {}, T.share), el("dd", {}, shareOfWhole(it.size)));
+  if (it.folder) dl.append(el("dt", {}, T.files), el("dd", {}, intFormat.format(it.files)));
+  if (it.date) dl.append(el("dt", {}, T.modified), el("dd", {}, date(it.date)));
+  const actions = el("div", { class: "actions" });
+  if (it.folder) actions.append(el("button", { type: "button", class: "primary", onclick: () => zoomTo(it) }, T.zoomIn));
+  actions.append(el("a", { href: linkFor(it), title: T.explorerHint, class: it.folder ? "" : "primary" }, T.explorer));
+  const copy = el("button", { type: "button", onclick: () => copyText(itemPath(it), copy) }, T.copy);
+  actions.append(copy);
+  detail.append(el("div", { class: "name" }, itemTitle(it)), el("div", { class: "path" }, itemPath(it)), dl, actions);
+  if (it.system) detail.append(el("div", { class: "hint", style: "padding:8px 0 0" }, T.system));
+}
+
+// Biggest folders without the chains above them: C:\Users is left out when
+// C:\Users\Anna\Videos holds at least half of it.
+function biggestFolders(count) {
+  const all = [];
+  (function walk(f) { for (const k of f.kids) if (k.folder) { all.push(k); walk(k); } })(state.root);
+  const candidates = all.filter(f => !(state.hideSystem && f.system)).sort((a, b) => b.size - a.size).slice(0, 300);
+  const kept = candidates.filter(f => !candidates.some(o => o !== f && o.size >= f.size * 0.5 && o.path.startsWith(f.path)));
+  return kept.slice(0, count);
+}
+function biggestFiles(count) {
+  const all = [];
+  (function walk(f) { for (const k of f.kids) { if (k.folder) walk(k); else if (!k.rest) all.push(k); } })(state.root);
+  return all.filter(f => !(state.hideSystem && f.system)).sort((a, b) => b.size - a.size).slice(0, count);
+}
+
+function listPanel(title, items) {
+  const ol = el("ol");
+  for (const it of items) {
+    ol.append(el("li", { title: it.path, onclick: () => reveal(it) },
+      el("span", { class: "n" }, it.name), el("span", { class: "s" }, bytes(it.size)),
+      el("span", { class: "p" }, "\u200E" + it.path + "\u200E")));
+  }
+  return el("section", { class: "card panel" }, el("h2", {}, title), items.length ? ol : el("div", { class: "empty" }, "–"));
+}
+
+let lists;
+function renderLists() {
+  lists.replaceChildren(listPanel(T.biggestFolders, biggestFolders(10)), listPanel(T.biggestFiles, biggestFiles(10)));
+}
+
+function render() {
+  const app = document.getElementById("app");
+  if (!DATA) { app.replaceChildren(el("div", { class: "nodata" }, T.noData)); return; }
+  state.root = buildTree(DATA.root, null);
+  state.root.path = DATA.path;
+  state.zoom = state.root;
+  state.hideSystem = !!DATA.hideSystem;
+  document.documentElement.lang = LANG;
+  document.title = "SpaceMonger – " + (DATA.computer ? DATA.computer + " – " : "") + DATA.path;
+
+  const used = DATA.total - DATA.free;
+  const head = el("header", {},
+    el("div", {}, el("h1", {}, T.title + " " + DATA.path.replace(/\\$/, "")),
+      el("div", { class: "sub" }, [DATA.computer, T.scanned + " " + date(DATA.date)].filter(Boolean).join(" · "))));
+  if (DATA.whole && DATA.total > 0) {
+    head.append(el("div", { class: "usage" },
+      el("div", { class: "usage-text" },
+        el("span", {}, el("b", {}, numberFormat.format(used * 100 / DATA.total) + T.full), " · " + bytes(used) + " " + T.used + " " + T.of + " " + bytes(DATA.total)),
+        el("span", {}, bytes(DATA.free) + " " + T.free)),
+      el("div", { class: "bar" }, el("div", { style: `width:${Math.min(100, used * 100 / DATA.total)}%` }))));
+  } else {
+    head.append(el("div", { class: "usage" }, el("div", { class: "usage-text" },
+      el("span", {}, el("b", {}, bytes(DATA.scanned)), " · " + intFormat.format(state.root.files) + " " + T.files))));
+  }
+
+  crumbs = el("nav", { class: "crumbs" });
+  const bar = el("div", { class: "toolbar" }, crumbs);
+  if (DATA.whole) {
+    const box = el("input", { type: "checkbox", id: "hidesys" });
+    box.checked = state.hideSystem;
+    box.addEventListener("change", () => { state.hideSystem = box.checked; renderLists(); relayout(); });
+    bar.append(el("label", { class: "toggle", for: "hidesys" }, box, T.hideSystem));
+  }
+  const wrap = el("div", { class: "mapwrap" }, canvas);
+  detail = el("section", { class: "card panel detail" });
+  lists = el("div", { style: "display:contents" });
+  hint = el("div", { class: "hint" }, T.mapHint);
+  app.replaceChildren(head, el("section", { class: "card" }, bar, wrap), hint,
+    el("div", { class: "below" }, detail, lists),
+    el("footer", {}, T.made + " ", el("a", { href: "https://github.com/JRpersonal/spacemonger" }, "SpaceMonger")));
+
+  canvas.addEventListener("mousemove", ev => {
+    const n = hit(ev);
+    const it = n && !n.special ? n.item : null;
+    if (it !== state.hover) { state.hover = it; draw(); }
+    showTip(ev, n);
+  });
+  canvas.addEventListener("mouseleave", () => { state.hover = null; tip.style.display = "none"; draw(); });
+  canvas.addEventListener("click", ev => { const n = hit(ev); if (n && !n.special) select(n.item.rest ? n.item.owner : n.item); });
+  canvas.addEventListener("dblclick", ev => {
+    const n = hit(ev);
+    if (!n || n.special) return;
+    const it = n.item.rest ? n.item.owner : n.item;
+    if (it.folder) zoomTo(it);
+  });
+  document.addEventListener("keydown", ev => {
+    if ((ev.key === "Escape" || ev.key === "Backspace") && state.zoom.parent && !/INPUT|TEXTAREA/.test(ev.target.tagName)) {
+      ev.preventDefault(); zoomTo(state.zoom.parent);
+    }
+  });
+  new ResizeObserver(() => relayout()).observe(wrap);
+  darkMode.addEventListener("change", () => draw());
+  renderCrumbs();
+  renderDetail();
+  renderLists();
+}
+
+render();
+</script>
+</body>
+</html>

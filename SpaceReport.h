@@ -46,9 +46,10 @@ std::wstring SM_BuildSpaceReport(const CFolder *root, const SM_ReportVolume &vol
 // otherwise this computer.
 std::wstring SM_ReportComputerForPath(const std::wstring &path);
 
-// "\\srv\reports\" or an existing folder -> "<folder>\<COMPUTER>_<yyyy-mm-dd>.csv".
-// Environment variables (%COMPUTERNAME%) are expanded.
-std::wstring SM_ResolveReportPath(const std::wstring &target, const std::wstring &computer);
+// "\\srv\reports\" or an existing folder -> "<folder>\<COMPUTER>_<yyyy-mm-dd>.csv"
+// (or the given extension). Environment variables (%COMPUTERNAME%) are expanded.
+std::wstring SM_ResolveReportPath(const std::wstring &target, const std::wstring &computer,
+	const wchar_t *extension = L".csv");
 
 // Writes UTF-8 with BOM (Excel then reads umlauts correctly).
 bool SM_WriteUtf8File(const std::wstring &path, const std::wstring &text);

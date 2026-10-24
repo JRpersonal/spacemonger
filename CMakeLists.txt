@@ -33,6 +33,8 @@ set(SPACEMONGER_SOURCES
   CleanupDialog.cpp
   CleanupScanner.cpp
   SpaceReport.cpp
+  HtmlReport.cpp
+  ReportLink.cpp
   PathBar.cpp
   DriveDialog.cpp
   DiskUsage.cpp
@@ -73,7 +75,7 @@ set_source_files_properties(PathUtil.cpp PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
 set_source_files_properties(AsyncScanEngine.cpp PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
 set_source_files_properties(Folder.cpp PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
 set_source_files_properties(TreemapLayout.cpp PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
-set_source_files_properties(CleanupScanner.cpp SpaceReport.cpp PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
+set_source_files_properties(CleanupScanner.cpp SpaceReport.cpp HtmlReport.cpp ReportLink.cpp PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
 set_target_properties(SpaceMonger PROPERTIES
   MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>"
 )
@@ -293,6 +295,10 @@ add_executable(Report_test
   tests/Report_test.cpp
   SpaceReport.cpp
   SpaceReport.h
+  HtmlReport.cpp
+  HtmlReport.h
+  ReportLink.cpp
+  ReportLink.h
   Folder.cpp
   Folder.h
   FolderEntryArrays.cpp
