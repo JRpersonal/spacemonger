@@ -772,8 +772,12 @@ void CFolderView::UpdateTitleBar(void)
 	CString title = L"";
 	ui64 size;
 
+	// A folder scan's path has no trailing backslash (a drive's has).
+	CString base = ft->m_path;
+	if (!base.IsEmpty() && base.Right(1) != L"\\") base += L"\\";
+
 	if (selected != NULL && selected->name != NULL) {
-		title += ft->m_path;
+		title += base;
 		BuildTitleReverse(selected->source, title);
 		title += selected->source->names[selected->index];
 		size = selected->source->sizes[selected->index];
@@ -781,7 +785,7 @@ void CFolderView::UpdateTitleBar(void)
 			+ L"  -  " + GetSizeString(size, ft->totalspace, 0) + L"  -  ";
 	}
 	else if (rootfolder != NULL) {
-		title += ft->m_path;
+		title += base;
 		BuildTitleReverse(rootfolder, title);
 		if (rootfolder->parent == NULL) size = ft->totalspace; // Kludge
 		else size = rootfolder->SizeTotal();

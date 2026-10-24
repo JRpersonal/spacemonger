@@ -18,12 +18,124 @@
 [![Ko-fi](https://img.shields.io/badge/Ko--fi-support-FF5E5B?logo=ko-fi&logoColor=white)](https://ko-fi.com/streborn)
 [![PayPal](https://img.shields.io/badge/PayPal-donate-00457C?logo=paypal&logoColor=white)](https://paypal.me/JR31337)
 
-**Your whole drive as one picture.** SpaceMonger draws every folder and
-file as a rectangle inside its parent, sized by the space it takes, with
-names, sizes and dates written on the boxes. One look shows where the space
-went, without expanding a single tree node.
+**Drive full, and no idea why?** Windows tells you that space is running
+out, but not where it went. Explorer shows no folder sizes, so you click
+through folder after folder. SpaceMonger scans the drive in seconds and
+draws every folder and file as a box, sized by the space it takes, with
+name, size and date written on it. The big boxes are what fills your
+drive: you see it at a glance, without opening a single folder.
+
+What people use it for:
+
+- **Free up a full drive.** Find the forgotten video, the old ISO image, the
+  Outlook archive or the download folder nobody cleaned up, and move it to the
+  Recycle Bin. Temporary files, caches and the Recycle Bin go in one click.
+- **Decide before buying.** See whether you really need a bigger SSD, or just
+  a cleanup, before you migrate a PC.
+- **Help desk.** Look at a colleague's drive from your own desk over the admin
+  share (`\\PC01\c$`), without installing anything on their PC.
+- **File servers.** See which project, department or backup fills a share.
+- **IT inventory.** Collect a CSV report from every PC on a share, run
+  without a window from a logon script or a scheduled task.
 
 ![SpaceMonger showing a file server share as a treemap](docs/images/treemap-classic.png)
+
+## Download
+
+| Windows | File |
+|---|---|
+| 64-bit (most PCs) | [SpaceMonger-x64.exe](https://github.com/JRpersonal/spacemonger/releases/latest/download/SpaceMonger-x64.exe) |
+| ARM64 (Snapdragon, Surface Pro X) | [SpaceMonger-arm64.exe](https://github.com/JRpersonal/spacemonger/releases/latest/download/SpaceMonger-arm64.exe) |
+| 32-bit (legacy) | [SpaceMonger-x86.exe](https://github.com/JRpersonal/spacemonger/releases/latest/download/SpaceMonger-x86.exe) |
+
+One signed exe, no installer: save it anywhere and start it.
+[How to verify a download](SECURITY.md#verifying-a-download).
+
+## Features
+
+All screenshots show a demo folder with placeholder files.
+
+### See where the space is
+
+Every box carries its name, size and date as long as it fits; folders show
+their total in the title bar. Double-click a folder to zoom in, the path bar
+above the map takes you back up.
+
+![Close-up: folder titles and file labels on the map](docs/images/closeup-labels.png)
+
+![Zoomed into the Users folder, path bar showing C:\FileServer › Users](docs/images/zoom.png)
+
+- Scan a drive, a folder (*Open* > *Folder...*, or drop it on the window) or a
+  network share.
+- Zoom with a double-click, the mouse wheel or the keyboard; the path bar
+  shows where you are, and each part of it is a link.
+- Tooltips with full path, size, share of the drive, contents and date.
+- On a whole drive, the free space is a block of its own, and Windows
+  folders (Windows, Program Files, ...) are shown muted or can be hidden, so
+  the eye goes to what you can change.
+
+### Find things
+
+Type into the search field (`Ctrl+F`): everything that does not match is
+washed out, and the count of matches appears next to it.
+
+![Close-up: file type legend, match count and search field](docs/images/closeup-search.png)
+
+![Search for "holiday": three videos stand out](docs/images/search.png)
+
+### See what kind of files they are
+
+*By file type* colours videos, pictures, music, documents, archives and disk
+images, and programs, with a legend above the map. Dark mode follows Windows
+or can be set in the settings.
+
+![Dark mode, coloured by file type](docs/images/dark-file-types.png)
+
+### Free up space
+
+*Clean Up* removes temporary files, browser caches and the Recycle Bin in one
+click. Below, your biggest files are listed with a tip for each; tick what you
+no longer need and move it to the Recycle Bin together.
+
+<img src="docs/images/clean-up.png" width="560" alt="Free Up Space dialog with the biggest files and tips">
+
+- Nothing is ever selected for you, and deleting always goes to the Recycle
+  Bin.
+- *Show in Explorer*, *Properties* and *Delete* also work on any box in the
+  map (right-click).
+
+### For administrators
+
+- Command line scans and headless CSV reports, see [Command line](#command-line).
+- CSV export of the biggest folders and files from the window
+  (right-click > *Export list*, `Ctrl+E`).
+- *Run as administrator* restarts elevated with the same path, for folders
+  the user cannot read.
+
+### Looks like Windows today
+
+![Close-up: toolbar with Fluent icons and the path bar](docs/images/closeup-toolbar.png)
+
+<img src="docs/images/settings.png" width="380" alt="Settings: detail, colours, behaviour, language and theme">
+
+- Fluent icons, light and dark mode, sharp text at any DPI and on mixed-DPI
+  monitors.
+- English, German and French, following the Windows display language.
+- Colours by depth (the classic look), muted, Windows colours or by file type.
+
+### Under the hood
+
+- Multithreaded scanner; the map builds live while the scan runs.
+- Unicode names and long paths end to end; junctions, symlinks, sparse files
+  and cloud placeholders (OneDrive and others) are accounted for correctly.
+- Honest numbers: a failed scan is an error, and space that could not be read
+  shows up as *Unavailable (estimate)* instead of disappearing.
+- Settings live in `HKCU\Software\65\SpaceMonger`; the program writes no other
+  files than the reports and exports you ask for. No telemetry, no update
+  checks.
+
+Known limitation: hard links are counted once per link. Details in
+[README.TXT](README.TXT).
 
 ## Why this fork
 
@@ -48,60 +160,6 @@ a company:
 | Users who are not technicians | Windows look, dark mode, German, English and French, system folders muted, *Clean Up* for safe space (temp, caches, Recycle Bin), everything else goes to the Recycle Bin |
 
 The original treemap, its colours and its speed stay as they were.
-
-## Download
-
-| Windows | File |
-|---|---|
-| 64-bit (most PCs) | [SpaceMonger-x64.exe](https://github.com/JRpersonal/spacemonger/releases/latest/download/SpaceMonger-x64.exe) |
-| ARM64 (Snapdragon, Surface Pro X) | [SpaceMonger-arm64.exe](https://github.com/JRpersonal/spacemonger/releases/latest/download/SpaceMonger-arm64.exe) |
-| 32-bit (legacy) | [SpaceMonger-x86.exe](https://github.com/JRpersonal/spacemonger/releases/latest/download/SpaceMonger-x86.exe) |
-
-Save it anywhere and start it. [How to verify a download](SECURITY.md#verifying-a-download).
-
-## Screenshots
-
-| Dark mode, coloured by file type | Search: everything else is washed out |
-|---|---|
-| ![Dark mode with the file type legend](docs/images/dark-file-types.png) | ![Search for "holiday" with 3 matches](docs/images/search.png) |
-
-The screenshots show a demo folder with placeholder files.
-
-## Features
-
-**See where the space is**
-- Treemap of a drive, a folder or a network share; zoom with a double-click,
-  the mouse wheel or the keyboard, and back with the path bar.
-- Colours by depth (the classic look), muted, Windows colours or *By file
-  type* with a legend: videos, pictures, music, documents, archives and
-  disk images, programs.
-- Search (`Ctrl+F`) highlights matching files and folders and counts them.
-- Tooltips with full path, size, share of the drive, contents and date.
-- On a whole drive, the free space is a block of its own, and Windows
-  folders (Windows, Program Files, ...) are shown muted or can be hidden, so
-  the eye goes to what the user can change.
-
-**Free up space**
-- *Clean Up*: temporary files, browser caches and the Recycle Bin in one
-  click; the biggest files are listed with tips.
-- Delete, *Show in Explorer*, *Properties*; deleting always goes to the
-  Recycle Bin, and personal files are never selected for you.
-
-**For administrators**
-- Command line scans and headless CSV reports, see below.
-- CSV export of the biggest folders and files from the window
-  (right-click > *Export list*, `Ctrl+E`).
-- *Run as administrator* restarts elevated with the same path.
-
-**Under the hood**
-- Multithreaded scanner; the map builds live while the scan runs.
-- Unicode names and long paths end to end; junctions, symlinks, sparse files
-  and cloud placeholders (OneDrive and others) are accounted for correctly.
-- Light and dark mode following Windows, sharp at any DPI, per-monitor DPI.
-- Settings live in `HKCU\Software\65\SpaceMonger`; the program writes no other files than the reports and exports you ask for.
-
-Known limitation: hard links are counted once per link. Details in
-[README.TXT](README.TXT).
 
 ## Command line
 

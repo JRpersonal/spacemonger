@@ -10,13 +10,17 @@ every release needs a `## [X.Y.Z]` section here first.
 ### Fixed
 - *By file type*: blocks of files too small to draw one by one were grey
   (*Other*); they now take the colour of their largest file.
+- Window title after zooming into a folder scan lacked the backslash after
+  the scanned folder (`C:\FileServerUsers\`).
 
 ### Changed
 - Toolbar icons in dark mode are drawn with stronger strokes; disabled ones
   are lighter, so both are easy to tell apart from the background.
 - The search field is larger and stands out: a rounded field with a
   magnifier, an accent frame while typing, and a hint readable in dark mode.
-- README: what this fork is for, screenshots, rollout notes.
+- README: starts with the problem SpaceMonger solves and what people use it
+  for, then the features with screenshots and close-ups; what this fork is
+  for, rollout notes.
 
 ## [1.4.6] - 2026-10-24
 
