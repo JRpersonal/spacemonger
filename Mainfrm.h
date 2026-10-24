@@ -7,6 +7,7 @@
 #undef bool
 #endif
 #include "ScanStatusBar.h"
+#include "PathBar.h"
 #include <string>
 #include <vector>
 #ifdef bool
@@ -89,6 +90,8 @@ public:
 	void SetScanNotice(ui64 skippedDirectories, DWORD firstError,
 		const std::vector<std::wstring>& paths);
 	void ClearScanNotice(void);
+	// Language, DPI, theme (light/dark) or colour scheme changed.
+	void ApplyAppearance(void);
 
 protected:
 	//{{AFX_MSG(CMainFrame)
@@ -105,6 +108,7 @@ protected:
 	afx_msg LRESULT OnScanNoticeClickedMessage(WPARAM wParam, LPARAM lParam);
 	afx_msg void OnScanNoticeUpdate(CCmdUI *ui);
 	afx_msg void OnDropFiles(HDROP drop);
+	afx_msg void OnSettingChange(UINT flags, LPCTSTR section);
 	afx_msg LRESULT OnScanDroppedPath(WPARAM wParam, LPARAM lParam);
 	//}}AFX_MSG
 	afx_msg void OnIgnoreUpdate(CCmdUI *ui);
@@ -112,6 +116,7 @@ protected:
 
 public:
 	CMainToolBar m_toolbar;
+	CPathBar m_pathBar;
 
 protected:
 	CScanNoticeButton m_scanNoticeButton;

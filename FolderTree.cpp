@@ -172,7 +172,7 @@ BOOL CFolderTree::LoadTree(const CString &path, BOOL includespace, CWnd *modalwi
 
 	scanUi.update(finalProgress, usedspace);
 
-	if (includespace
+	if (includespace && isVolumeRoot
 		&& !root->AddFileWithArena(nameArena, L"<<<<<<<<<<<<<<<<<<<<", 1, freespace, freespace, 0)) {
 		delete root;
 		nameArena.Reset();

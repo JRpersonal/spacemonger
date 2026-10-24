@@ -32,6 +32,11 @@ public:
 	void ZoomOut(void);
 	void ZoomFull(void);
 	void ShowFreeSpace(BOOL show);
+	// Path bar: show this folder (one of the zoomed folder's ancestors).
+	void ZoomTo(CFolder *folder);
+	// Search: matching files and folders keep their colours, the rest is
+	// washed out. Empty text ends the search.
+	void SetSearch(const std::wstring &text);
 
 	inline bool IsAnythingOpen(void)
 		{ return rootfolder != NULL; }
@@ -87,6 +92,10 @@ protected:
 	void SetupNameTip(const TreemapNode *cur);
 	void SetNameTipFont(HFONT font);
 	TreemapConfig MakeLayoutConfig(void);
+	bool SearchMatches(const TreemapNode *cur) const;
+	void UpdatePathBar(void);
+	std::wstring m_search;
+	std::wstring m_searchFolded;	// m_search, case-folded
 	std::wstring FolderTitle(CDC *pDC, const TreemapNode *cur, int width);
 	// Live frames and the switch to the finished map blend over the picture
 	// on screen (ease-in-out) instead of replacing it.

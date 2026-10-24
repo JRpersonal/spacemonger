@@ -33,6 +33,7 @@ set(SPACEMONGER_SOURCES
   CleanupDialog.cpp
   CleanupScanner.cpp
   SpaceReport.cpp
+  PathBar.cpp
   DriveDialog.cpp
   DiskUsage.cpp
   Folder.cpp

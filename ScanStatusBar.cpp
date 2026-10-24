@@ -1,6 +1,7 @@
 #include "stdafx.h"
 #include "spacemonger.h"
 #include "ScanStatusBar.h"
+#include "Theme.h"
 #include "PathUtil.h"
 #include "Lang.h"
 #include "TextFormat.h"
@@ -183,8 +184,9 @@ void CScanStatusBar::OnPaint()
 	bitmap.CreateCompatibleBitmap(&paint, rect.Width(), rect.Height());
 	CBitmap *oldBitmap = mem.SelectObject(&bitmap);
 
-	mem.FillSolidRect(&rect, ::GetSysColor(COLOR_3DFACE));
-	mem.FillSolidRect(0, 0, rect.Width(), 1, ::GetSysColor(COLOR_3DSHADOW));
+	const SM_Theme &theme = SM_CurrentTheme();
+	mem.FillSolidRect(&rect, theme.face);
+	mem.FillSolidRect(0, 0, rect.Width(), 1, theme.line);
 
 	HGDIOBJ oldFont = ::SelectObject(mem.m_hDC, m_font != NULL ? m_font : ::GetStockObject(DEFAULT_GUI_FONT));
 	mem.SetBkMode(TRANSPARENT);
@@ -199,9 +201,9 @@ void CScanStatusBar::OnPaint()
 
 	// Line 1: what is scanned and how far, counts and size on the right.
 	CRect titleRect(pad, top, right, top + text);
-	mem.SetTextColor(::GetSysColor(COLOR_BTNTEXT));
+	mem.SetTextColor(theme.text);
 	mem.DrawText(m_title, &titleRect, DT_LEFT | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
-	mem.SetTextColor(::GetSysColor(COLOR_GRAYTEXT));
+	mem.SetTextColor(theme.grayText);
 	mem.DrawText(m_detail, &titleRect, DT_RIGHT | DT_SINGLELINE | DT_NOPREFIX);
 
 	// Line 2 (below the bar): the folder being read.
