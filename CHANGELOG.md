@@ -7,6 +7,8 @@ every release needs a `## [X.Y.Z]` section here first.
 
 ## [Unreleased]
 
+## [1.4.8] - 2026-10-26
+
 ### Added
 - The window stays usable during a scan. The scan no longer runs in a nested
   message loop: a timer in the main window drives it. *Clean Up*, *Settings*

@@ -32,7 +32,7 @@ STYLE DS_MODALFRAME | DS_SETFOREGROUND | DS_3DLOOK | WS_POPUP | WS_VISIBLE |
 FONT 9, "Segoe UI"
 BEGIN
     ICON            ID_SPACEMONGER,IDC_STATIC,7,9,20,20
-    LTEXT           "SpaceMonger Version 1.4.7",IDC_STATIC,37,9,216,10
+    LTEXT           "SpaceMonger Version 1.4.8",IDC_STATIC,37,9,216,10
     LTEXT           "",IDC_STATIC_DESCRIPTION,37,20,216,18
     LTEXT           "",IDC_STATIC_MAINTAINER,37,42,216,18
     CONTROL         "",IDC_STATIC,"Static",SS_ETCHEDHORZ,37,64,216,1
@@ -285,8 +285,8 @@ REPORT_HTML             RCDATA  DISCARDABLE     "res\\report.html"
 //
 
 VS_VERSION_INFO VERSIONINFO
- FILEVERSION 1,4,7,0
- PRODUCTVERSION 1,4,7,0
+ FILEVERSION 1,4,8,0
+ PRODUCTVERSION 1,4,8,0
  FILEFLAGSMASK 0x3fL
 #ifdef _DEBUG
  FILEFLAGS 0x1L
@@ -304,14 +304,14 @@ BEGIN
             VALUE "Comments", "Latest version: https://github.com/JRpersonal/spacemonger/releases\0"
             VALUE "CompanyName", "Open Source Developer Jens Roggenfelder\0"
             VALUE "FileDescription", "SpaceMonger disk space visualizer\0"
-            VALUE "FileVersion", "1, 4, 7, 0\0"
+            VALUE "FileVersion", "1, 4, 8, 0\0"
             VALUE "InternalName", "SpaceMonger\0"
             VALUE "LegalCopyright", "(C) 1998-2020 Sean Werkema, (C) 2026 Johnny J. Andersen, Jens Roggenfelder. MIT License\0"
             VALUE "LegalTrademarks", "\0"
             VALUE "OriginalFilename", "SpaceMonger.exe\0"
             VALUE "PrivateBuild", "\0"
             VALUE "ProductName", "SpaceMonger\0"
-            VALUE "ProductVersion", "1, 4, 7, 0\0"
+            VALUE "ProductVersion", "1, 4, 8, 0\0"
             VALUE "SpecialBuild", "\0"
         END
     END
