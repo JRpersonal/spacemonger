@@ -20,6 +20,7 @@ BEGIN_MESSAGE_MAP(CSettingsDialog, CDialog)
 	ON_BN_CLICKED(IDC_SHOW_INFO_TIPS, OnChange)
 	ON_BN_CLICKED(IDC_SHOW_ROLLOVER_BOX, OnChange)
 	ON_BN_CLICKED(IDC_DISABLE_DELETE, OnChange)
+	ON_BN_CLICKED(IDC_SCAN_CACHE, OnChange)
 	//}}AFX_MSG_MAP
 END_MESSAGE_MAP()
 
@@ -84,6 +85,7 @@ void CSettingsDialog::ReadControls(void)
 	theApp.m_settings.show_name_tips = theApp.m_settings.show_info_tips;
 	theApp.m_settings.rollover_box = IsDlgButtonChecked(IDC_SHOW_ROLLOVER_BOX);
 	theApp.m_settings.disable_delete = IsDlgButtonChecked(IDC_DISABLE_DELETE);
+	theApp.m_settings.scan_cache = IsDlgButtonChecked(IDC_SCAN_CACHE);
 }
 
 void CSettingsDialog::OnLang(void)
@@ -117,6 +119,7 @@ void CSettingsDialog::UpdateDialogForNewLanguage(void)
 	SetDlgItemText(IDC_SHOW_INFO_TIPS, CurLang->set_hover_details);
 	SetDlgItemText(IDC_SHOW_ROLLOVER_BOX, CurLang->set_highlight);
 	SetDlgItemText(IDC_DISABLE_DELETE, CurLang->disabledelete);
+	SetDlgItemText(IDC_SCAN_CACHE, CurLang->set_scan_cache);
 	SetDlgItemText(IDC_STATIC_MISCOPTIONS, CurLang->set_appearance);
 	SetDlgItemText(IDC_STATIC_LANG, CurLang->set_language);
 	SetDlgItemText(IDC_STATIC_THEME, CurLang->set_theme);
@@ -167,5 +170,6 @@ BOOL CSettingsDialog::OnInitDialog()
 	CheckDlgButton(IDC_SHOW_INFO_TIPS, theApp.m_settings.show_info_tips);
 	CheckDlgButton(IDC_SHOW_ROLLOVER_BOX, theApp.m_settings.rollover_box);
 	CheckDlgButton(IDC_DISABLE_DELETE, theApp.m_settings.disable_delete);
+	CheckDlgButton(IDC_SCAN_CACHE, theApp.m_settings.scan_cache);
 	return TRUE;
 }

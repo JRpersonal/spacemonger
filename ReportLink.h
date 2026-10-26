@@ -31,4 +31,8 @@ bool SM_IsPlainLocalPath(const std::wstring &path);
 bool SM_RegisterReportLinks(const std::wstring &exe);
 bool SM_UnregisterReportLinks();
 
+// True when the handler already points at exe, so a report made in the window
+// can register it on demand (and again after the program was moved).
+bool SM_ReportLinksRegistered(const std::wstring &exe);
+
 #endif

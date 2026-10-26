@@ -18,6 +18,8 @@ public:
 	void Update(ui64 files, ui64 folders, ui64 bytes, ui64 usedspace,
 		const std::wstring &currentPath, bool complete);
 	void End(void);
+	// A short note in front of the folder line ("Showing the scan from ...").
+	void SetNote(const CString &note);
 	// Height for the current font and DPI; 0 while hidden.
 	int GetDesiredHeight(void) const;
 	BOOL IsCancelRequested(void) const { return m_cancelRequested; }
@@ -41,6 +43,7 @@ protected:
 	CString m_root;
 	CString m_title;
 	CString m_detail;
+	CString m_note;
 	std::wstring m_path;
 };
 

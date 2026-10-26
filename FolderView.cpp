@@ -13,6 +13,8 @@
 #include "FileTypes.h"
 #include "Theme.h"
 #include "PathBar.h"
+#include "SpaceReport.h"
+#include "Version.h"
 #include <shlwapi.h>
 #include <unordered_map>
 
@@ -322,6 +324,63 @@ void CFolderView::ShowInExplorer(const TreemapNode *cur)
 	}
 }
 
+static void PrintDate(CString &string, ui64 time);
+static void CountTree(const CFolder *folder, ui64 &files, ui64 &folders);
+
+// Puts what a support ticket or a chat message needs on the clipboard: the full
+// path, the size (readable and exact) with its share of the drive, what a
+// folder contains, the last change, and the computer it was scanned on.
+void CFolderView::CopyItemInfo(const TreemapNode *cur)
+{
+	if (cur == NULL || cur->source == NULL || cur->index == (ui32)-1 || cur->name == NULL || cur->IsSpecial())
+		return;
+	CFolderTree *tree = (CFolderTree *)GetDocument();
+	std::wstring path = BuildItemPathW(cur);
+	// Folders are copied without the trailing backslash a drive root would keep.
+	if (path.size() > 3 && path.back() == L'\\') path.pop_back();
+
+	ui64 size = cur->source->actualsizes[cur->index];
+	ui64 total = tree != NULL && tree->totalspace > 0 ? tree->totalspace : 1;
+	int permille = (int)((size * (ui64)1000) / total);
+
+	CString text = path.c_str();
+	text += L"\r\n";
+	CString line;
+	std::wstring sizeText = SM_FormatBytes(size) + L" (" + SM_FormatCount(size) + L" " + CurLang->bytes + L")";
+	line.Format(CurLang->tip_drive_share_format, sizeText.c_str(), permille / 10, permille % 10);
+	text += line + L"\r\n";
+
+	if ((cur->flags & TREEMAP_FLAG_FOLDER) && cur->source->children[cur->index] != NULL) {
+		ui64 files = 0, folders = 0;
+		CountTree(cur->source->children[cur->index], files, folders);
+		line.Format(CurLang->tip_contents_format, SM_FormatCount(files).c_str(), SM_FormatCount(folders).c_str());
+		text += line + L"\r\n";
+	}
+	if (cur->source->times[cur->index] != 0) {
+		CString date;
+		PrintDate(date, cur->source->times[cur->index]);
+		line.Format(CurLang->tip_modified_format, (LPCWSTR)date);
+		text += line + L"\r\n";
+	}
+	if (tree != NULL) {
+		std::wstring computer = SM_ReportComputerForPath((LPCWSTR)tree->m_path);
+		if (!computer.empty()) text += CString(L"Computer: ") + computer.c_str() + L"\r\n";
+	}
+
+	size_t bytes = ((size_t)text.GetLength() + 1) * sizeof(wchar_t);
+	HGLOBAL memory = ::GlobalAlloc(GMEM_MOVEABLE, bytes);
+	if (memory == NULL) return;
+	void *locked = ::GlobalLock(memory);
+	if (locked == NULL) { ::GlobalFree(memory); return; }
+	memcpy(locked, (LPCWSTR)text, bytes);
+	::GlobalUnlock(memory);
+	if (!::OpenClipboard(m_hWnd)) { ::GlobalFree(memory); return; }
+	::EmptyClipboard();
+	// The clipboard owns the memory once SetClipboardData succeeds.
+	if (::SetClipboardData(CF_UNICODETEXT, memory) == NULL) ::GlobalFree(memory);
+	::CloseClipboard();
+}
+
 // The folder box that directly contains a file box (NULL at the top level).
 const TreemapNode *CFolderView::FolderOf(const TreemapNode *cur)
 {
@@ -368,7 +427,13 @@ void CFolderView::OnKeyDown(UINT key, UINT repeat, UINT flags)
 	case VK_HOME: ZoomFull(); break;
 	case VK_DELETE: app->OnFileDelete(); break;
 	case VK_F5: app->OnFileRefresh(); break;
-	case 'E': if (::GetKeyState(VK_CONTROL) < 0) app->OnExport(); break;
+	case 'E':
+		if (::GetKeyState(VK_CONTROL) < 0) {
+			// Ctrl+E is the Report button; Ctrl+Shift+E asks where to save (and offers CSV).
+			if (::GetKeyState(VK_SHIFT) < 0) app->OnExport();
+			else app->OnReport();
+		}
+		break;
 	case 'F':
 		if (::GetKeyState(VK_CONTROL) < 0) {
 			CMainFrame *frame = (CMainFrame *)GetTopLevelFrame();
@@ -712,12 +777,12 @@ void CFolderView::OnRButtonUp(UINT flags, CPoint point)
 	::AddMenuEntry(menu, ID_VIEW_ZOOM_FULL, CurLang->zoomfull, 0, cur == NULL, 0);
 	::AddMenuEntry(menu);
 	::AddMenuEntry(menu, ID_FILE_RUN, CurLang->run, 0, cur == NULL, (cur != NULL) && (cur->flags & 1) == 0);	// Show in Explorer
+	::AddMenuEntry(menu, ID_FILE_COPYINFO, CurLang->copy_info, 0,
+		cur == NULL || cur->source == NULL || cur->index == (ui32)-1 || cur->IsSpecial(), 0);
 	::AddMenuEntry(menu, ID_FILE_DELETE, CurLang->del, 0,
 		!SM_CanDeleteSelection(app->m_settings.disable_delete, cur != NULL), 0);
 	::AddMenuEntry(menu);
 	::AddMenuEntry(menu, ID_FILE_PROPERTIES, CurLang->properties, 0, cur == NULL, 0);
-	::AddMenuEntry(menu);
-	::AddMenuEntry(menu, ID_FILE_EXPORT, CurLang->export_list, 0, !IsAnythingOpen(), 0);
 	::TrackPopupMenuEx(menu, TPM_LEFTALIGN|TPM_LEFTBUTTON|TPM_RIGHTBUTTON,
 		point.x, point.y, theApp.m_mainframe->m_hWnd, NULL);
 	::DestroyMenu(menu);
@@ -763,7 +828,7 @@ void CFolderView::UpdateTitleBar(void)
 
 	CFolderTree *ft = (CFolderTree *)GetDocument();
 	if (ft == NULL || rootfolder == NULL) {
-		mainfrm->SetWindowText(L"SpaceMonger");
+		mainfrm->SetWindowText(SM_APP_TITLE);
 		return;
 	}
 
@@ -794,7 +859,7 @@ void CFolderView::UpdateTitleBar(void)
 			+ L" " + CurLang->free + L"  -  ";
 	}
 
-	title += L"SpaceMonger";
+	title += SM_APP_TITLE;
 
 	mainfrm->SetWindowText(title);
 }	

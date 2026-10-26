@@ -78,10 +78,16 @@ public:
 
 	virtual void RecalcLayout(BOOL bNotify);
 
-	// Scan progress in the window instead of a floating dialog. While a scan
-	// runs the toolbar and the map ignore input; the frame stays enabled so
-	// Cancel, moving and resizing keep working.
+	virtual BOOL PreTranslateMessage(MSG *msg);
+
+	// Scan progress in the window instead of a floating dialog. The scan runs
+	// in the background, driven by a timer here, so the window stays usable:
+	// Cancel, Settings, Clean Up and About work, and so does the map once the
+	// previous scan of the place is shown (SetScanPreview). Until then the map
+	// shows the live scan and ignores input.
 	void BeginScan(const CString &root);
+	// The map shows the scan made at scanTime (FILETIME) while the new one runs.
+	void SetScanPreview(ui64 scanTime);
 	void UpdateScan(ui64 files, ui64 folders, ui64 bytes, ui64 usedspace,
 		const std::wstring &currentPath, bool complete);
 	void EndScan(void);
@@ -112,6 +118,7 @@ protected:
 	afx_msg void OnDropFiles(HDROP drop);
 	afx_msg void OnSettingChange(UINT flags, LPCTSTR section);
 	afx_msg LRESULT OnScanDroppedPath(WPARAM wParam, LPARAM lParam);
+	afx_msg void OnTimer(UINT_PTR id);
 	//}}AFX_MSG
 	afx_msg void OnIgnoreUpdate(CCmdUI *ui);
 	DECLARE_MESSAGE_MAP()

@@ -32,6 +32,7 @@ set(SPACEMONGER_SOURCES
   AsyncScanEngine.cpp
   CleanupDialog.cpp
   CleanupScanner.cpp
+  ScanCache.cpp
   SpaceReport.cpp
   HtmlReport.cpp
   ReportLink.cpp
@@ -68,14 +69,16 @@ set_property(TARGET SpaceMonger PROPERTY VS_GLOBAL_UseOfMfc "Static")
 # is incorrect").
 set_property(TARGET SpaceMonger PROPERTY VS_DPI_AWARE "OFF")
 target_include_directories(SpaceMonger PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-target_compile_definitions(SpaceMonger PRIVATE WIN32 _WINDOWS UNICODE _UNICODE)
+target_compile_definitions(SpaceMonger PRIVATE WIN32 _WINDOWS UNICODE _UNICODE
+  # The version shown in the window title comes from project(VERSION) above.
+  $<$<COMPILE_LANGUAGE:CXX>:SM_VERSION_TEXT="${PROJECT_VERSION}">)
 target_compile_options(SpaceMonger PRIVATE /W3 /EHsc /utf-8)
 target_precompile_headers(SpaceMonger PRIVATE Stdafx.h)
 set_source_files_properties(PathUtil.cpp PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
 set_source_files_properties(AsyncScanEngine.cpp PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
 set_source_files_properties(Folder.cpp PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
 set_source_files_properties(TreemapLayout.cpp PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
-set_source_files_properties(CleanupScanner.cpp SpaceReport.cpp HtmlReport.cpp ReportLink.cpp PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
+set_source_files_properties(CleanupScanner.cpp ScanCache.cpp SpaceReport.cpp HtmlReport.cpp ReportLink.cpp PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
 set_target_properties(SpaceMonger PROPERTIES
   MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>"
 )
@@ -290,6 +293,23 @@ set_target_properties(Cleanup_test PROPERTIES
   MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>"
 )
 add_test(NAME Cleanup_test COMMAND Cleanup_test)
+
+add_executable(ScanCache_test
+  tests/ScanCache_test.cpp
+  ScanCache.cpp
+  ScanCache.h
+  Folder.cpp
+  Folder.h
+  FolderEntryArrays.cpp
+  FolderEntryArrays.h
+)
+target_include_directories(ScanCache_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_compile_definitions(ScanCache_test PRIVATE WIN32 _WINDOWS UNICODE _UNICODE)
+target_compile_options(ScanCache_test PRIVATE /W3 /EHsc)
+set_target_properties(ScanCache_test PROPERTIES
+  MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>"
+)
+add_test(NAME ScanCache_test COMMAND ScanCache_test)
 
 add_executable(Report_test
   tests/Report_test.cpp

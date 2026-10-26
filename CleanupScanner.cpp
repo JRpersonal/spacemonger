@@ -199,12 +199,21 @@ void SM_MeasureCleanupTarget(SM_CleanupTarget &target, const std::atomic<bool> *
 		SM_MeasureFolder(path, target.keepRecent, target.bytes, target.files, cancel);
 }
 
-SM_CleanupResult SM_CleanFolder(const std::wstring &path, bool keepRecent)
+SM_CleanupResult SM_CleanFolder(const std::wstring &path, bool keepRecent, SM_CleanupProgress *progress)
 {
 	SM_CleanupResult result = { 0, 0, 0 };
+	auto skipped = [&](const WIN32_FIND_DATAW &data) {
+		++result.skippedFiles;
+		if (progress != nullptr) {
+			progress->skippedFiles.fetch_add(1);
+			progress->processedBytes.fetch_add(FileSize(data));
+		}
+	};
 	auto visit = [&](const std::wstring &file, const WIN32_FIND_DATAW &data) {
 		if (keepRecent && IsRecent(data.ftLastWriteTime)) {
+			// Recent files were not counted by the measurement either.
 			++result.skippedFiles;
+			if (progress != nullptr) progress->skippedFiles.fetch_add(1);
 			return;
 		}
 		std::wstring prepared = PathUtil::PrepareLongPath(file);
@@ -213,15 +222,20 @@ SM_CleanupResult SM_CleanFolder(const std::wstring &path, bool keepRecent)
 		if (::DeleteFileW(prepared.c_str())) {
 			result.freedBytes += FileSize(data);
 			++result.deletedFiles;
+			if (progress != nullptr) {
+				progress->freedBytes.fetch_add(FileSize(data));
+				progress->deletedFiles.fetch_add(1);
+				progress->processedBytes.fetch_add(FileSize(data));
+			}
 		} else {
-			++result.skippedFiles;	// in use or access denied: leave it
+			skipped(data);	// in use or access denied: leave it
 		}
 	};
-	WalkFolder(path, visit, true);
+	WalkFolder(path, visit, true, progress != nullptr ? &progress->cancel : nullptr);
 	return result;
 }
 
-SM_CleanupResult SM_CleanTarget(const SM_CleanupTarget &target)
+SM_CleanupResult SM_CleanTarget(const SM_CleanupTarget &target, SM_CleanupProgress *progress)
 {
 	SM_CleanupResult total = { 0, 0, 0 };
 	if (target.kind == SM_CLEAN_RECYCLE_BIN) {
@@ -232,11 +246,17 @@ SM_CleanupResult SM_CleanTarget(const SM_CleanupTarget &target)
 		if (SUCCEEDED(::SHEmptyRecycleBinW(NULL, NULL, SHERB_NOCONFIRMATION | SHERB_NOPROGRESSUI | SHERB_NOSOUND))) {
 			total.freedBytes = (ui64)info.i64Size;
 			total.deletedFiles = (ui64)info.i64NumItems;
+			if (progress != nullptr) {
+				progress->freedBytes.fetch_add(total.freedBytes);
+				progress->deletedFiles.fetch_add(total.deletedFiles);
+				progress->processedBytes.fetch_add(total.freedBytes);
+			}
 		}
 		return total;
 	}
 	for (const auto &path : target.paths) {
-		SM_CleanupResult r = SM_CleanFolder(path, target.keepRecent);
+		if (progress != nullptr && progress->cancel.load()) break;
+		SM_CleanupResult r = SM_CleanFolder(path, target.keepRecent, progress);
 		total.freedBytes += r.freedBytes;
 		total.deletedFiles += r.deletedFiles;
 		total.skippedFiles += r.skippedFiles;

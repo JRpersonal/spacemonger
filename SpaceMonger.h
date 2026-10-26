@@ -25,6 +25,7 @@ struct CCurrentSettings {
 	BOOL auto_rescan;		// Auto-rescan when a file is deleted
 	BOOL animated_zoom;		// Use animated zoom in/out
 	BOOL disable_delete;	// Disallow the deletion of files
+	BOOL scan_cache;		// Keep the last scan on disk and show it while rescanning
 	BOOL rollover_box;		// Show rollover box
 	int bias;				// Display bias, from -20 (vert) to +20 (horz)
 
@@ -65,6 +66,7 @@ public:
 	afx_msg void OnFileOpen(void);
 	afx_msg void OnFileRefresh(void);
 	afx_msg void OnFileRun(void);
+	afx_msg void OnCopyInfo(void);
 	afx_msg void OnFileDelete(void);
 	afx_msg void OnZoomFull(void);
 	afx_msg void OnZoomIn(void);
@@ -90,6 +92,10 @@ public:
 
 	// Scans a drive, folder or share (\\PC01\c$) and shows it.
 	void ScanPath(const CString &path);
+	// Called by the main window's timer while a scan runs.
+	void PollScan(void);
+	BOOL m_rescanAfterScan;		// something was cleaned up during the scan
+	BOOL m_polling;
 
 	// Shows m_settings in the map and the window chrome (no registry write).
 	void ApplySettings(void);

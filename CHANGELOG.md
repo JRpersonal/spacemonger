@@ -7,6 +7,36 @@ every release needs a `## [X.Y.Z]` section here first.
 
 ## [Unreleased]
 
+### Added
+- The window stays usable during a scan. The scan no longer runs in a nested
+  message loop: a timer in the main window drives it. *Clean Up*, *Settings*
+  and *About* keep working while it runs, `Esc` or *Cancel* stops it, and
+  the live map is laid out less often on big drives so it never takes more
+  than about a ninth of the time.
+- Scan cache: the last finished scan of a place is saved under
+  `%LOCALAPPDATA%\SpaceMonger\cache` and shown at once (with its date) while
+  the new scan runs, so the map can be browsed and zoomed right away. The new
+  scan always runs in full and replaces it; nothing is skipped or trusted.
+  Scans of more than 3 million entries are not cached. Off with *Settings >
+  Keep the last scan...* (or `scan_cache` = 0 under
+  `HKCU\Software\65\SpaceMonger\1.3`).
+- *Clean Up* works in the background with a progress bar, the location being
+  emptied and a *Stop* button, and shows how many locations are measured.
+- Right-click > *Copy path and size* puts the full path, size (readable and
+  in bytes) with share of the drive, folder contents, last change and the
+  computer name on the clipboard.
+- The version is in the window title (`SpaceMonger 1.4.7`).
+
+### Fixed
+- *Show in Explorer* in the HTML report did nothing unless `/register` had
+  been run. The window now registers the `spacemonger:` links for the current
+  user whenever it writes a report (and again if the program was moved).
+
+### Changed
+- `Ctrl+E` is the *Report* button; `Ctrl+Shift+E` still asks where to save and
+  offers CSV. *Export list* is gone from the right-click menu: it did the same
+  as *Report*, and the menu is about the item under the pointer.
+
 ## [1.4.7] - 2026-10-24
 
 ### Added

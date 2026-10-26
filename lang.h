@@ -54,6 +54,16 @@ struct Lang {
 	const wchar_t *cleanup_measuring, *cleanup_delete, *cleanup_open, *cleanup_close;
 	const wchar_t *cleanup_details, *cleanup_done_format, *cleanup_nothing, *cleanup_no_scan;
 	const wchar_t *cleanup_recycle, *cleanup_recycled_format;
+	// Clean-up progress: "%d of %d measured", "Cleaning %s (%d of %d)",
+	// "%s of %s", the stop button, "Stopped - %s freed.", row states.
+	const wchar_t *cleanup_measuring_format, *cleanup_running_format, *cleanup_progress_format;
+	const wchar_t *cleanup_stop, *cleanup_stopped_format;
+	const wchar_t *cleanup_row_cleaning, *cleanup_row_done;
+	// Scan cache: "Showing the scan from %s while it is updated.", and the
+	// short phase after the last folder was read.
+	const wchar_t *scan_cached_format, *scan_finalizing;
+	const wchar_t *copy_info;			// context menu: path, size and details to the clipboard
+	const wchar_t *set_scan_cache;		// Settings: keep the last scan and show it while rescanning
 	// Open a folder, export, search, elevation.
 	const wchar_t *open_folder;			// drive dialog button
 	const wchar_t *export_list;			// context menu

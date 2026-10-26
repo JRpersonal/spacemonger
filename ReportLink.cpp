@@ -105,6 +105,17 @@ bool SM_RegisterReportLinks(const std::wstring &exe)
 		&& set(L"shell\\open\\command", nullptr, command);
 }
 
+bool SM_ReportLinksRegistered(const std::wstring &exe)
+{
+	std::wstring key = std::wstring(kClassKey) + L"\\shell\\open\\command";
+	wchar_t value[2 * MAX_PATH + 32];
+	DWORD size = sizeof(value);
+	if (::RegGetValueW(HKEY_CURRENT_USER, key.c_str(), nullptr, RRF_RT_REG_SZ, nullptr, value, &size) != ERROR_SUCCESS)
+		return false;
+	std::wstring expected = L"\"" + exe + L"\" /link \"%1\"";
+	return _wcsicmp(value, expected.c_str()) == 0;
+}
+
 bool SM_UnregisterReportLinks()
 {
 	LSTATUS status = ::RegDeleteTreeW(HKEY_CURRENT_USER, kClassKey);

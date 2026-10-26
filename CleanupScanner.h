@@ -52,13 +52,26 @@ std::vector<SM_CleanupTarget> SM_FindCleanupTargets(void);
 // Sets bytes/files (what a clean-up would remove). Stops early when
 // *cancel becomes true (the dialog closed meanwhile).
 void SM_MeasureCleanupTarget(SM_CleanupTarget &target, const std::atomic<bool> *cancel = nullptr);
-// Deletes the contents; never follows junctions or symlinks.
-SM_CleanupResult SM_CleanTarget(const SM_CleanupTarget &target);
+
+// Live counters of a clean-up that runs on a worker thread: the dialog reads
+// them to show progress, and sets cancel to stop after the current file.
+struct SM_CleanupProgress {
+	std::atomic<ui64> processedBytes{0};	// deleted or skipped, against the measured total
+	std::atomic<ui64> freedBytes{0};
+	std::atomic<ui64> deletedFiles{0};
+	std::atomic<ui64> skippedFiles{0};
+	std::atomic<bool> cancel{false};
+};
+
+// Deletes the contents; never follows junctions or symlinks. With progress,
+// the counters are updated as files go and progress->cancel stops it early.
+SM_CleanupResult SM_CleanTarget(const SM_CleanupTarget &target, SM_CleanupProgress *progress = nullptr);
 
 // Helpers exposed for tests: measure / clean one folder.
 void SM_MeasureFolder(const std::wstring &path, bool keepRecent, ui64 &bytes, ui64 &files,
 	const std::atomic<bool> *cancel = nullptr);
-SM_CleanupResult SM_CleanFolder(const std::wstring &path, bool keepRecent);
+SM_CleanupResult SM_CleanFolder(const std::wstring &path, bool keepRecent,
+	SM_CleanupProgress *progress = nullptr);
 
 enum SM_LargeFileKind {
 	SM_LARGE_VIDEO,
