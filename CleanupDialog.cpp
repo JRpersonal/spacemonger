@@ -10,6 +10,9 @@
 namespace {
 
 const UINT WM_CLEANUP_MEASURED = WM_APP + 0x51;
+const UINT WM_CLEANUP_FINISHED = WM_APP + 0x52;
+const UINT_PTR kCleanTimer = 1;
+const int kProgressRange = 1000;
 const ui64 kLargeFileMinimum = 200ull * 1024 * 1024;
 const size_t kLargeFileCount = 25;
 // Extra height (dialog units) the Details list takes when shown.
@@ -48,6 +51,8 @@ BEGIN_MESSAGE_MAP(CCleanupDialog, CDialog)
 	ON_NOTIFY(LVN_ITEMCHANGED, IDC_CLEANUP_LIST, OnTargetChanged)
 	ON_NOTIFY(NM_DBLCLK, IDC_CLEANUP_LARGE, OnLargeDblClk)
 	ON_MESSAGE(WM_CLEANUP_MEASURED, OnMeasured)
+	ON_MESSAGE(WM_CLEANUP_FINISHED, OnCleanFinished)
+	ON_WM_TIMER()
 	ON_WM_DESTROY()
 END_MESSAGE_MAP()
 
@@ -61,11 +66,17 @@ CCleanupDialog::CCleanupDialog(CFolderTree *tree, CWnd *parent)
 	m_cancel = false;
 	m_pending = 0;
 	m_generation = 0;
+	m_cleaning = FALSE;
+	m_closeAfterClean = FALSE;
+	m_cleanTotal = 0;
+	m_cleanCurrent = 0;
+	m_cleanMarked = 0;
 }
 
 CCleanupDialog::~CCleanupDialog()
 {
 	StopMeasuring();
+	StopCleaning();
 }
 
 void CCleanupDialog::StopMeasuring(void)
@@ -75,10 +86,32 @@ void CCleanupDialog::StopMeasuring(void)
 	m_cancel = false;
 }
 
+// Asks a running clean-up to stop and waits for the worker (it checks between
+// files, so this takes at most one delete).
+void CCleanupDialog::StopCleaning(void)
+{
+	m_cleanProgress.cancel.store(true);
+	if (m_cleaner.joinable()) m_cleaner.join();
+}
+
 void CCleanupDialog::OnDestroy()
 {
 	StopMeasuring();
+	StopCleaning();
 	CDialog::OnDestroy();
+}
+
+// Closing while files are being removed stops the clean-up first and closes
+// when the worker reports back, instead of pulling the dialog away from it.
+void CCleanupDialog::OnCancel()
+{
+	if (m_cleaning) {
+		m_closeAfterClean = TRUE;
+		m_cleanProgress.cancel.store(true);
+		GetDlgItem(IDC_CLEANUP_DELETE)->EnableWindow(FALSE);
+		return;
+	}
+	CDialog::OnCancel();
 }
 
 BOOL CCleanupDialog::OnInitDialog()
@@ -96,6 +129,10 @@ BOOL CCleanupDialog::OnInitDialog()
 	SetDlgItemText(IDC_CLEANUP_DELETE_FILES, CurLang->cleanup_recycle);
 	SetDlgItemText(IDC_CLEANUP_MOVED, L"");
 	GetDlgItem(IDC_CLEANUP_DELETE_FILES)->EnableWindow(FALSE);
+
+	m_bar.SubclassDlgItem(IDC_CLEANUP_PROGRESS, this);
+	m_bar.SetRange32(0, kProgressRange);
+	m_bar.ShowWindow(SW_HIDE);
 
 	m_targets.SubclassDlgItem(IDC_CLEANUP_LIST, this);
 	m_large.SubclassDlgItem(IDC_CLEANUP_LARGE, this);
@@ -159,6 +196,8 @@ void CCleanupDialog::FillTargets(void)
 	// Measure on a worker; each finished row is posted back to the dialog.
 	m_measured = m_items;
 	m_pending = m_items.size();
+	m_bar.SetPos(0);
+	m_bar.ShowWindow(SW_SHOW);
 	HWND self = m_hWnd;
 	LPARAM generation = ++m_generation;
 	m_measurer = std::thread([this, self, generation]() {
@@ -189,6 +228,11 @@ LRESULT CCleanupDialog::OnMeasured(WPARAM index, LPARAM generation)
 		m_items[index].files = m_measured[index].files;
 	}
 	if (m_pending > 0) --m_pending;
+	if (!m_cleaning) {
+		size_t measured = m_items.size() - m_pending;
+		m_bar.SetPos((int)(measured * kProgressRange / m_items.size()));
+		if (m_pending == 0) m_bar.ShowWindow(SW_HIDE);
+	}
 	int row = RowOf(index);
 	if (row >= 0) {
 		const SM_CleanupTarget &target = m_items[index];
@@ -213,9 +257,11 @@ ui64 CCleanupDialog::CheckedBytes(void)
 // One sentence on top says what one click will free.
 void CCleanupDialog::UpdateSummary(void)
 {
+	if (m_cleaning) return;	// the clean-up shows its own status
 	ui64 total = CheckedBytes();
 	CString text;
-	if (m_pending > 0) text = CurLang->cleanup_measuring;
+	if (m_pending > 0)
+		text.Format(CurLang->cleanup_measuring_format, (int)(m_items.size() - m_pending), (int)m_items.size());
 	else if (total == 0) text = CurLang->cleanup_nothing;
 	else text.Format(CurLang->cleanup_summary_format, SM_FormatBytes(total).c_str());
 	SetDlgItemText(IDC_CLEANUP_TEMP_HEADER, text);
@@ -244,29 +290,130 @@ void CCleanupDialog::OnTargetChanged(NMHDR *pNotify, LRESULT *pResult)
 // preselected, and recent or in-use files are left alone anyway.
 void CCleanupDialog::OnDelete()
 {
+	// While cleaning, the same button stops it.
+	if (m_cleaning) {
+		m_cleanProgress.cancel.store(true);
+		GetDlgItem(IDC_CLEANUP_DELETE)->EnableWindow(FALSE);
+		return;
+	}
+
 	std::vector<size_t> chosen;
 	for (int i = 0; i < m_targets.GetItemCount(); ++i) {
 		if (m_targets.GetCheck(i)) chosen.push_back(m_targets.GetItemData(i));
 	}
 	if (chosen.empty()) return;
+	StopMeasuring();
 
-	SM_CleanupResult sum = { 0, 0, 0 };
-	{
-		CWaitCursor wait;
-		GetDlgItem(IDC_CLEANUP_DELETE)->EnableWindow(FALSE);
-		for (size_t index : chosen) {
-			SM_CleanupResult r = SM_CleanTarget(m_items[index]);
-			sum.freedBytes += r.freedBytes;
-			sum.deletedFiles += r.deletedFiles;
-			sum.skippedFiles += r.skippedFiles;
-		}
+	std::vector<SM_CleanupTarget> targets;
+	m_cleanTotal = 0;
+	for (size_t index : chosen) {
+		targets.push_back(m_items[index]);
+		m_cleanTotal += m_items[index].bytes;
 	}
-	if (sum.deletedFiles > 0) m_freedAnything = TRUE;
+	m_cleanChosen = chosen;
+	m_cleanProgress.processedBytes.store(0);
+	m_cleanProgress.freedBytes.store(0);
+	m_cleanProgress.deletedFiles.store(0);
+	m_cleanProgress.skippedFiles.store(0);
+	m_cleanProgress.cancel.store(false);
+	m_cleanCurrent.store(0);
+	m_cleanMarked = 0;
+	m_closeAfterClean = FALSE;
+	m_lastStatus.Empty();
+	m_cleaning = TRUE;
+	SetBusy(TRUE);
+	m_bar.SetPos(0);
+	m_bar.ShowWindow(SW_SHOW);
+	SetTimer(kCleanTimer, 150, NULL);
+
+	HWND self = m_hWnd;
+	m_cleaner = std::thread([this, self, targets]() {
+		for (size_t k = 0; k < targets.size() && !m_cleanProgress.cancel.load(); ++k) {
+			m_cleanCurrent.store(k);
+			SM_CleanTarget(targets[k], &m_cleanProgress);
+		}
+		::PostMessageW(self, WM_CLEANUP_FINISHED, 0, 0);
+	});
+	ShowCleanProgress();
+}
+
+// The dialog stays usable while the worker runs, but nothing that would change
+// the lists under it: only Stop (the delete button) and Close work.
+void CCleanupDialog::SetBusy(BOOL busy)
+{
+	m_targets.EnableWindow(!busy);
+	m_large.EnableWindow(!busy);
+	GetDlgItem(IDC_CLEANUP_DETAILS)->EnableWindow(!busy);
+	GetDlgItem(IDC_CLEANUP_OPEN)->EnableWindow(!busy && !m_files.empty());
+	SetDlgItemText(IDC_CLEANUP_DELETE, busy ? CurLang->cleanup_stop : CurLang->cleanup_delete);
+	GetDlgItem(IDC_CLEANUP_DELETE)->EnableWindow(busy);
+	if (busy) {
+		GetDlgItem(IDC_CLEANUP_DELETE_FILES)->EnableWindow(FALSE);
+	} else {
+		LRESULT unused = 0;
+		OnLargeChanged(NULL, &unused);
+	}
+}
+
+void CCleanupDialog::ShowCleanProgress(void)
+{
+	if (m_cleanChosen.empty()) return;
+	ui64 processed = m_cleanProgress.processedBytes.load();
+	ui64 shown = (std::min)(processed, m_cleanTotal);
+	m_bar.SetPos(m_cleanTotal > 0 ? (int)(shown * kProgressRange / m_cleanTotal) : 0);
+
+	size_t current = (std::min)(m_cleanCurrent.load(), m_cleanChosen.size() - 1);
+	// Finished locations say so; the one being emptied is marked.
+	m_filling = TRUE;
+	for (; m_cleanMarked < current; ++m_cleanMarked) {
+		int row = RowOf(m_cleanChosen[m_cleanMarked]);
+		if (row >= 0) m_targets.SetItemText(row, 1, CurLang->cleanup_row_done);
+	}
+	int row = RowOf(m_cleanChosen[current]);
+	if (row >= 0) m_targets.SetItemText(row, 1, CurLang->cleanup_row_cleaning);
+	m_filling = FALSE;
+
+	CString status, line;
+	status.Format(CurLang->cleanup_running_format,
+		CurLang->cleanup_kind_labels[m_items[m_cleanChosen[current]].kind],
+		(int)current + 1, (int)m_cleanChosen.size());
+	line.Format(CurLang->cleanup_progress_format, SM_FormatBytes(shown).c_str(),
+		SM_FormatBytes(m_cleanTotal).c_str());
+	status += L"\r\n" + line;
+	if (status != m_lastStatus) {
+		m_lastStatus = status;
+		SetDlgItemText(IDC_CLEANUP_TOTAL, status);
+	}
+}
+
+void CCleanupDialog::OnTimer(UINT_PTR id)
+{
+	if (id == kCleanTimer && m_cleaning) ShowCleanProgress();
+	else CDialog::OnTimer(id);
+}
+
+LRESULT CCleanupDialog::OnCleanFinished(WPARAM, LPARAM)
+{
+	if (m_cleaner.joinable()) m_cleaner.join();
+	KillTimer(kCleanTimer);
+	m_cleaning = FALSE;
+	m_bar.ShowWindow(SW_HIDE);
+
+	const bool stopped = m_cleanProgress.cancel.load();
+	const ui64 freed = m_cleanProgress.freedBytes.load();
+	if (m_cleanProgress.deletedFiles.load() > 0) m_freedAnything = TRUE;
+	if (m_closeAfterClean) {
+		CDialog::OnCancel();
+		return 0;
+	}
+	SetBusy(FALSE);
 
 	CString done;
-	done.Format(CurLang->cleanup_done_format, SM_FormatBytes(sum.freedBytes).c_str());
+	done.Format(stopped ? CurLang->cleanup_stopped_format : CurLang->cleanup_done_format,
+		SM_FormatBytes(freed).c_str());
 	SetDlgItemText(IDC_CLEANUP_TOTAL, done);
 	FillTargets();
+	return 0;
 }
 
 void CCleanupDialog::OnDetails()
@@ -356,7 +503,7 @@ void CCleanupDialog::OnLargeChanged(NMHDR *pNotify, LRESULT *pResult)
 	for (int i = 0; i < m_large.GetItemCount() && !any; ++i) {
 		if (m_large.GetCheck(i) && (size_t)m_large.GetItemData(i) < m_files.size()) any = TRUE;
 	}
-	GetDlgItem(IDC_CLEANUP_DELETE_FILES)->EnableWindow(any);
+	GetDlgItem(IDC_CLEANUP_DELETE_FILES)->EnableWindow(any && !m_cleaning);
 	*pResult = 0;
 }
 

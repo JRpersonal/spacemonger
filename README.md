@@ -111,7 +111,7 @@ no longer need and move it to the Recycle Bin together.
   [HTML report](#html-report)), saved to *Documents\SpaceMonger* and opened
   in the browser.
 - CSV export of the biggest folders and files from the window
-  (right-click > *Export list*, `Ctrl+E`).
+  (the *Report* button, `Ctrl+E`; `Ctrl+Shift+E` asks where to save and offers CSV).
 - *Run as administrator* restarts elevated with the same path, for folders
   the user cannot read.
 
@@ -201,7 +201,7 @@ The full file also has the size in bytes and the scan date.
 
 ### HTML report
 
-`/html`, the *Report* button in the window or *Export list* (`Ctrl+E`) write one self-contained
+`/html`, the *Report* button in the window (`Ctrl+E`) write one self-contained
 page with the same map as the window: hover for details, double-click a
 folder to zoom in or a file to show it in Explorer, the biggest folders and
 files below. It needs no network,
@@ -211,7 +211,10 @@ user's OneDrive or sent by mail. A whole drive is a few hundred KB.
 ![HTML report: the map in the browser, zoomed into Users, with details of the selected file](docs/images/html-report.png)
 
 *Show in Explorer* uses `spacemonger:` links, which work once
-`SpaceMonger.exe /register` has run for the user. Since any web page can open
+`SpaceMonger.exe /register` has run for the user. The *Report* button does
+that by itself the first time it writes a page (current user only, no
+administrator needed); `/register` is for pages made with `/html` on a machine
+where nobody has used the window yet. Since any web page can open
 such a link, SpaceMonger accepts only plain local paths (`C:\...`): no shares,
 no device paths, no `..`. A link only selects the item in Explorer; nothing
 is ever deleted or changed through it.

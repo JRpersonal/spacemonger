@@ -89,6 +89,7 @@ void CScanStatusBar::Begin(const CString &root, HFONT font, UINT dpi)
 	m_root = root;
 	m_title.Format(L"%s  %s", (LPCWSTR)ScanningLabel(), (LPCWSTR)root);
 	m_detail.Empty();
+	m_note.Empty();
 	m_path.clear();
 	if (m_font != NULL) m_cancel.SendMessage(WM_SETFONT, (WPARAM)m_font, FALSE);
 	CString cancel = CurLang->cancel;
@@ -128,6 +129,12 @@ void CScanStatusBar::Update(ui64 files, ui64 folders, ui64 bytes, ui64 usedspace
 	CRect rect;
 	GetClientRect(&rect);
 	InvalidateRect(&rect, FALSE);
+}
+
+void CScanStatusBar::SetNote(const CString &note)
+{
+	m_note = note;
+	if (::IsWindow(m_hWnd)) Invalidate(FALSE);
 }
 
 void CScanStatusBar::End(void)
@@ -209,6 +216,13 @@ void CScanStatusBar::OnPaint()
 	// Line 2 (below the bar): the folder being read.
 	int pathTop = top + text + gap + bar + gap;
 	CRect pathRect(pad, pathTop, right, pathTop + text);
+	if (!m_note.IsEmpty()) {
+		// The note keeps its place; the current folder takes what is left.
+		CSize noteSize = mem.GetTextExtent(m_note + L"  \x00B7  ");
+		CRect noteRect(pad, pathTop, min(right, pad + noteSize.cx), pathTop + text);
+		mem.DrawText(m_note + L"  \x00B7  ", &noteRect, DT_LEFT | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
+		pathRect.left = noteRect.right;
+	}
 	mem.DrawText(m_path.c_str(), (int)m_path.size(), &pathRect,
 		DT_LEFT | DT_SINGLELINE | DT_NOPREFIX | DT_PATH_ELLIPSIS);
 

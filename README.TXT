@@ -1,5 +1,5 @@
 
-SpaceMonger Version 1.4.7
+SpaceMonger Version 1.4.8
 -------------------------
 
 
@@ -19,7 +19,7 @@ The latest version of SpaceMonger is always available at:
 SYSTEM REQUIREMENTS
 -------------------
 
-SpaceMonger 1.4.7 is optimized for modern Windows environments. It is intended
+SpaceMonger 1.4.8 is optimized for modern Windows environments. It is intended
 to run on Windows 10, Windows 11, and modern Windows Server editions.
 Because it is a native C++ MFC application, it has virtually zero dependencies
 and remains incredibly lightweight. Any PC capable of running Windows today
@@ -116,6 +116,17 @@ users of the program to give away copies to their friends.
 
 WHAT'S NEW
 ----------
+
+Between 1.4.7 and 1.4.8 (Responsive Scan, Scan Cache)
+   * The window stays usable during a scan: Clean Up, Settings and About
+     work, Esc cancels.
+   * Scan cache: the last scan of a place is shown at once, with its date,
+     while the new one runs. Can be switched off in Settings.
+   * Clean Up runs in the background with a progress bar and a Stop button.
+   * Right-click: Copy path and size. Ctrl+E is the Report button.
+   * Fixed: Show in Explorer in the HTML report needed /register; the Report
+     button now sets it up itself.
+   * The version is shown in the window title.
 
 Between 1.4.6 and 1.4.7 (HTML Report)
    * HTML report: the map as one page that opens in any browser, with

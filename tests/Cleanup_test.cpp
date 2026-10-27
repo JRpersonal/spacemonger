@@ -95,6 +95,40 @@ static int test_in_use_file_is_skipped()
 	return 1;
 }
 
+// The dialog reads these counters from another thread to show progress.
+static int test_progress_counters_and_cancel()
+{
+	std::wstring dir = MakeTempDir();
+	WriteFile(dir + L"\\a.tmp", 1000, true);
+	WriteFile(dir + L"\\b.tmp", 500, true);
+	WriteFile(dir + L"\\recent.tmp", 300, false);
+
+	SM_CleanupTarget target;
+	target.kind = SM_CLEAN_USER_TEMP;
+	target.paths.push_back(dir);
+	target.keepRecent = true;
+	target.defaultChecked = true;
+	target.bytes = target.files = 0;
+
+	SM_CleanupProgress progress;
+	SM_CleanupResult r = SM_CleanTarget(target, &progress);
+	CHECK(r.deletedFiles == 2 && r.freedBytes == 1500);
+	CHECK(progress.deletedFiles.load() == 2 && progress.freedBytes.load() == 1500);
+	CHECK(progress.processedBytes.load() == 1500);	// the recent file was never part of the total
+	CHECK(progress.skippedFiles.load() == 1);
+
+	// A clean-up that was stopped before it started removes nothing.
+	WriteFile(dir + L"\\c.tmp", 100, true);
+	SM_CleanupProgress stopped;
+	stopped.cancel.store(true);
+	r = SM_CleanTarget(target, &stopped);
+	CHECK(r.deletedFiles == 0 && Exists(dir + L"\\c.tmp"));
+
+	SM_CleanFolder(dir, false);
+	RemoveDirectoryW(dir.c_str());
+	return 1;
+}
+
 static int test_classify()
 {
 	CHECK(SM_ClassifyLargeFile(L"holiday.MP4") == SM_LARGE_VIDEO);
@@ -153,6 +187,7 @@ int main()
 {
 	if (!test_measure_and_clean_keep_recent()) return 1;
 	if (!test_in_use_file_is_skipped()) return 1;
+	if (!test_progress_counters_and_cancel()) return 1;
 	if (!test_classify()) return 1;
 	if (!test_large_personal_files()) return 1;
 	if (!test_targets_exist()) return 1;

@@ -7,6 +7,7 @@
 #include "Theme.h"
 #include "Lang.h"
 #include "DpiUtil.h"
+#include "Version.h"
 #include <string>
 #include <math.h>
 
@@ -30,6 +31,7 @@ BEGIN_MESSAGE_MAP(CMainFrame, CFrameWnd)
 	ON_WM_DROPFILES()
 	ON_WM_SETTINGCHANGE()
 	ON_MESSAGE(WM_SCAN_DROPPED_PATH, OnScanDroppedPath)
+	ON_WM_TIMER()
 	//}}AFX_MSG_MAP
 	ON_UPDATE_COMMAND_UI(IDC_SCAN_NOTICE, OnScanNoticeUpdate)
 	ON_UPDATE_COMMAND_UI_RANGE(100, 41000, OnIgnoreUpdate)
@@ -80,7 +82,7 @@ int CMainFrame::OnCreate(LPCREATESTRUCT lpCreateStruct)
 {
 	if (CFrameWnd::OnCreate(lpCreateStruct) == -1) return(-1);
 
-	SetWindowText(L"SpaceMonger");
+	SetWindowText(SM_APP_TITLE);
 
 	HINSTANCE hinst = AfxFindResourceHandle(MAKEINTRESOURCE(ID_SPACEMONGER), RT_ICON);
 	HICON hicon = ::LoadIcon(hinst, MAKEINTRESOURCE(ID_SPACEMONGER));
@@ -332,14 +334,62 @@ void CMainFrame::OnClose()
 	CFrameWnd::OnClose();
 }
 
+namespace {
+const UINT_PTR kScanTimer = 0x5C41;
+const UINT kScanTimerMs = 40;
+}
+
+// The timer drives the background scan (CSpaceMonger::PollScan); the window's
+// message loop keeps running in between, so nothing in the window freezes.
+void CMainFrame::OnTimer(UINT_PTR id)
+{
+	if (id == kScanTimer) theApp.PollScan();
+	else CFrameWnd::OnTimer(id);
+}
+
+// Esc cancels a running scan, but only when this window is the one in front:
+// in a dialog Esc closes that dialog.
+BOOL CMainFrame::PreTranslateMessage(MSG *msg)
+{
+	if (m_scanning && msg->message == WM_KEYDOWN && msg->wParam == VK_ESCAPE
+		&& ::GetActiveWindow() == m_hWnd) {
+		m_scanStatus.RequestCancel();
+		return TRUE;
+	}
+	return CFrameWnd::PreTranslateMessage(msg);
+}
+
 void CMainFrame::BeginScan(const CString &root)
 {
 	m_scanning = TRUE;
-	m_toolbar.EnableWindow(FALSE);
+	// The toolbar stays enabled: its buttons decide for themselves what is
+	// possible during a scan (UpdateButtonsForView). The map only takes input
+	// once the previous scan is on it (SetScanPreview).
 	if (theApp.m_view != NULL) theApp.m_view->EnableWindow(FALSE);
 	m_scanStatus.Begin(root, m_toolbar.GetUiFont(), m_toolbar.GetDpi());
 	RecalcLayout(0);
 	m_scanStatus.UpdateWindow();
+	SetTimer(kScanTimer, kScanTimerMs, NULL);
+	if (theApp.m_view != NULL) m_toolbar.UpdateButtonsForView((CFolderView *)theApp.m_view);
+}
+
+void CMainFrame::SetScanPreview(ui64 scanTime)
+{
+	if (theApp.m_view != NULL) theApp.m_view->EnableWindow(TRUE);
+	FILETIME utc, local;
+	utc.dwLowDateTime = (DWORD)(scanTime & 0xFFFFFFFF);
+	utc.dwHighDateTime = (DWORD)(scanTime >> 32);
+	SYSTEMTIME time;
+	wchar_t date[64] = L"", clock[32] = L"";
+	if (::FileTimeToLocalFileTime(&utc, &local) && ::FileTimeToSystemTime(&local, &time)) {
+		::GetDateFormatW(LOCALE_USER_DEFAULT, DATE_SHORTDATE, &time, NULL, date, _countof(date));
+		::GetTimeFormatW(LOCALE_USER_DEFAULT, TIME_NOSECONDS, &time, NULL, clock, _countof(clock));
+	}
+	CString stamp = CString(date) + L" " + clock;
+	CString note;
+	note.Format(CurLang->scan_cached_format, (LPCWSTR)stamp);
+	m_scanStatus.SetNote(note);
+	if (theApp.m_view != NULL) m_toolbar.UpdateButtonsForView((CFolderView *)theApp.m_view);
 }
 
 void CMainFrame::UpdateScan(ui64 files, ui64 folders, ui64 bytes, ui64 usedspace,
@@ -350,11 +400,12 @@ void CMainFrame::UpdateScan(ui64 files, ui64 folders, ui64 bytes, ui64 usedspace
 
 void CMainFrame::EndScan(void)
 {
+	KillTimer(kScanTimer);
 	m_scanStatus.End();
-	m_toolbar.EnableWindow(TRUE);
 	if (theApp.m_view != NULL) theApp.m_view->EnableWindow(TRUE);
 	m_scanning = FALSE;
 	RecalcLayout(0);
+	if (theApp.m_view != NULL) m_toolbar.UpdateButtonsForView((CFolderView *)theApp.m_view);
 	if (m_closeAfterScan) PostMessage(WM_CLOSE);
 }
 
@@ -770,17 +821,22 @@ void CMainToolBar::UpdateButtonsForView(CFolderView *view)
 {
 	CSpaceMonger *app = (CSpaceMonger *)AfxGetApp();
 	CToolBarCtrl &ctrl = *this;
-	SetButtonEnabledIfChanged(ctrl, ID_FILE_DELETE, !app->m_settings.disable_delete
+	// During a scan only what cannot disturb it stays on: Clean Up, Settings,
+	// About and restarting as administrator, plus zooming and the view toggles
+	// while the previous scan is on the map.
+	CMainFrame *frame = (CMainFrame *)GetParent();
+	const BOOL scanning = frame != NULL && frame->IsScanning();
+	SetButtonEnabledIfChanged(ctrl, ID_FILE_DELETE, !scanning && !app->m_settings.disable_delete
 		&& view->IsAnythingOpen() && view->IsAnythingSelected());
-	SetButtonEnabledIfChanged(ctrl, ID_FILE_OPEN, 1);
-	SetButtonEnabledIfChanged(ctrl, ID_FILE_REFRESH, view->IsAnythingOpen());
+	SetButtonEnabledIfChanged(ctrl, ID_FILE_OPEN, !scanning);
+	SetButtonEnabledIfChanged(ctrl, ID_FILE_REFRESH, !scanning && view->IsAnythingOpen());
 	SetButtonEnabledIfChanged(ctrl, ID_VIEW_ZOOM_FULL, view->IsAnythingOpen() && !view->IsZoomFull());
 	SetButtonEnabledIfChanged(ctrl, ID_VIEW_ZOOM_OUT, view->IsAnythingOpen() && !view->IsZoomFull());
 	SetButtonEnabledIfChanged(ctrl, ID_VIEW_ZOOM_IN, view->IsAnythingOpen() && view->CanZoomIn());
 	SetButtonEnabledIfChanged(ctrl, ID_VIEW_FREE, view->IsAnythingOpen());
 	SetButtonEnabledIfChanged(ctrl, ID_VIEW_HIDE_SYSTEM, view->IsAnythingOpen());
 	SetButtonEnabledIfChanged(ctrl, ID_TOOLS_CLEANUP, 1);
-	SetButtonEnabledIfChanged(ctrl, ID_FILE_REPORT, view->IsAnythingOpen());
+	SetButtonEnabledIfChanged(ctrl, ID_FILE_REPORT, !scanning && view->IsAnythingOpen());
 	SetButtonEnabledIfChanged(ctrl, ID_FILE_RUNAS, !::IsUserAnAdmin());
 	SetButtonEnabledIfChanged(ctrl, ID_SETTINGS, 1);
 	SetButtonEnabledIfChanged(ctrl, ID_APP_ABOUT, 1);

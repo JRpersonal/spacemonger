@@ -95,6 +95,8 @@
 #define IDC_CLEANUP_SEP                 1061
 #define IDC_CLEANUP_DELETE_FILES        1062
 #define IDC_CLEANUP_MOVED               1063
+#define IDC_CLEANUP_PROGRESS            1068
+#define IDC_SCAN_CACHE                  1069
 #define IDC_STATIC_LANG                 1064
 #define IDC_THEME                       1065
 #define IDC_STATIC_THEME                1066
@@ -116,6 +118,7 @@
 #define ID_FILE_RUNAS                   40021
 #define ID_FILE_EXPORT                  40022
 #define ID_FILE_REPORT                  40023
+#define ID_FILE_COPYINFO                40024
 #define ID_FILE_PROPERTIES              40018
 
 // Next default values for new objects
@@ -123,8 +126,8 @@
 #ifdef APSTUDIO_INVOKED
 #ifndef APSTUDIO_READONLY_SYMBOLS
 #define _APS_NEXT_RESOURCE_VALUE        125
-#define _APS_NEXT_COMMAND_VALUE         40024
-#define _APS_NEXT_CONTROL_VALUE         1068
+#define _APS_NEXT_COMMAND_VALUE         40025
+#define _APS_NEXT_CONTROL_VALUE         1070
 #define _APS_NEXT_SYMED_VALUE           101
 #endif
 #endif

@@ -46,6 +46,7 @@ public:
 	const TreemapNode *ZoomTarget(void);
 	const TreemapNode *FolderOf(const TreemapNode *cur);
 	void ShowInExplorer(const TreemapNode *cur);
+	void CopyItemInfo(const TreemapNode *cur);
 	inline bool CanZoomIn(void) { return ZoomTarget() != NULL; }
 	inline bool IsSelectedAFolder(void)
 		{ return selected != NULL && (selected->flags & 1) != 0; }

@@ -15,6 +15,7 @@
 #include "SpaceReport.h"
 #include "HtmlReport.h"
 #include "ReportLink.h"
+#include "Version.h"
 #include "Theme.h"
 #include <shobjidl.h>
 #include <shlobj.h>
@@ -34,6 +35,7 @@ BEGIN_MESSAGE_MAP(CSpaceMonger, CWinApp)
 	ON_COMMAND(ID_FILE_OPEN, OnFileOpen)
 	ON_COMMAND(ID_FILE_REFRESH, OnFileRefresh)
 	ON_COMMAND(ID_FILE_RUN, OnFileRun)
+	ON_COMMAND(ID_FILE_COPYINFO, OnCopyInfo)
 	ON_COMMAND(ID_FILE_DELETE, OnFileDelete)
 	ON_COMMAND(ID_FILE_PROPERTIES, OnFileProperties)
 	ON_COMMAND(ID_VIEW_ZOOM_FULL, OnZoomFull)
@@ -59,6 +61,8 @@ CSpaceMonger::CSpaceMonger()
 	m_view = NULL;
 	m_headless = false;
 	m_exitCode = 0;
+	m_rescanAfterScan = FALSE;
+	m_polling = FALSE;
 }
 
 namespace {
@@ -206,6 +210,16 @@ std::wstring LoadHtmlTemplate()
 	std::wstring text((size_t)n, L'\0');
 	::MultiByteToWideChar(CP_UTF8, 0, bytes, size, &text[0], n);
 	return text;
+}
+
+// The page's "Show in Explorer" links only work once the spacemonger: handler
+// exists, and nothing else sets it up for a user who never ran /register.
+void EnsureReportLinks()
+{
+	wchar_t exe[MAX_PATH];
+	DWORD length = ::GetModuleFileNameW(NULL, exe, MAX_PATH);
+	if (length == 0 || length >= MAX_PATH || SM_ReportLinksRegistered(exe)) return;
+	SM_RegisterReportLinks(exe);
 }
 
 // The HTML page in the program's language.
@@ -375,7 +389,7 @@ BOOL CSpaceMonger::InitInstance()
 			MAKEINTRESOURCE(anim_name[i]), IMAGE_BITMAP, 128, 48,
 			LR_LOADTRANSPARENT|LR_LOADMAP3DCOLORS);
 
-	m_mainframe->SetWindowText(L"SpaceMonger");
+	m_mainframe->SetWindowText(SM_APP_TITLE);
 	m_mainframe->ShowWindow(showcmd);
 	m_mainframe->UpdateWindow();
 	m_mainframe->RecalcLayout();
@@ -387,7 +401,8 @@ BOOL CSpaceMonger::InitInstance()
 	// start with the drive picker: choosing a drive is what nearly every
 	// session begins with.
 	if (!start.path.IsEmpty()) {
-		// LoadTree pumps messages itself, so this works before the message loop starts.
+		// Starts the background scan; the main window's timer carries it on once
+		// the message loop runs.
 		ScanPath(start.path);
 	}
 	else m_mainframe->PostMessage(WM_COMMAND, ID_FILE_OPEN);
@@ -417,6 +432,8 @@ void CSpaceMonger::OnAppExit(void)
 
 void CSpaceMonger::OnFileOpen(void)
 {
+	CFolderTree *running = (CFolderTree *)m_document;
+	if (running != NULL && running->IsLoading()) return;
 	CDriveDialog drvdialog;
 	int drive = (int)drvdialog.DoModal();
 	if (drive == -1) return;
@@ -446,7 +463,8 @@ void CSpaceMonger::ScanPath(const CString &path)
 void CSpaceMonger::OnExport(void)
 {
 	CFolderTree *ft = (CFolderTree *)m_document;
-	if (ft == NULL || ft->GetRoot() == NULL) return;
+	// While a scan runs the map may be the previous scan, not today's.
+	if (ft == NULL || ft->GetRoot() == NULL || ft->IsLoading()) return;
 	SM_ReportVolume volume = MakeReportVolume(*ft);
 
 	PWSTR documents = NULL;
@@ -465,7 +483,10 @@ void CSpaceMonger::OnExport(void)
 	CString file = dialog.GetPathName();
 	const bool html = dialog.m_ofn.nFilterIndex != 2 && file.Right(4).CompareNoCase(L".csv") != 0;
 	std::wstring text;
-	if (html) text = BuildHtmlPage(*ft, m_settings.hide_system != 0);
+	if (html) {
+		EnsureReportLinks();
+		text = BuildHtmlPage(*ft, m_settings.hide_system != 0);
+	}
 	else {
 		SM_ReportOptions options;
 		SM_ReportLocaleSeparators(options);
@@ -495,7 +516,7 @@ void CSpaceMonger::OnExport(void)
 void CSpaceMonger::OnReport(void)
 {
 	CFolderTree *ft = (CFolderTree *)m_document;
-	if (ft == NULL || ft->GetRoot() == NULL) return;
+	if (ft == NULL || ft->GetRoot() == NULL || ft->IsLoading()) return;
 	SM_ReportVolume volume = MakeReportVolume(*ft);
 
 	PWSTR documents = NULL;
@@ -507,6 +528,7 @@ void CSpaceMonger::OnReport(void)
 	::SHCreateDirectoryExW(NULL, folder, NULL);
 
 	std::wstring file = SM_ResolveReportPath((LPCWSTR)folder, volume.computer, L".html");
+	EnsureReportLinks();
 	if (!SM_WriteUtf8File(file, BuildHtmlPage(*ft, m_settings.hide_system != 0))) {
 		CString message;
 		message.Format(L"%s\n\nWindows error %lu", file.c_str(), ::GetLastError());
@@ -551,16 +573,40 @@ void CSpaceMonger::OnRunAsAdmin(void)
 void CSpaceMonger::OnFileRefresh(void)
 {
 	CFolderTree *ft = (CFolderTree *)m_document;
+	CMainFrame *frame = (CMainFrame *)m_mainframe;
+	if (ft == NULL || ft->IsLoading() || (frame != NULL && frame->IsScanning())) return;
 
-	// The frame stays enabled during the scan so its Cancel button works;
-	// LoadTree locks the toolbar and the map through CMainFrame::BeginScan.
+	// The scan runs in the background, driven by a timer in the main window
+	// (PollScan), so the window stays usable while it works.
 	m_view->SetDocument(NULL);
 	m_view->UpdateWindow();
 
 	((CFolderView *)m_view)->zoomlevel = 0;
-	ft->LoadTree(ft->m_path, 1, m_mainframe);
-	m_view->SetDocument(m_document);
-	ft->UpdateAllViews();
+	if (!ft->BeginLoad(ft->m_path, 1)) {
+		m_view->SetDocument(m_document);
+		ft->UpdateAllViews();
+	}
+}
+
+// One step of the background scan, from the main window's timer: progress,
+// and when the scan is over, the finished map.
+void CSpaceMonger::PollScan(void)
+{
+	CFolderTree *ft = (CFolderTree *)m_document;
+	// FinishLoad can show a message box, which runs the timer again.
+	if (m_polling || ft == NULL || !ft->IsLoading()) return;
+	m_polling = TRUE;
+	if (!ft->PollLoad()) {
+		ft->FinishLoad();
+		m_view->SetDocument(m_document);
+		ft->UpdateAllViews();
+		// Something was cleaned up while the scan ran: scan again for the new numbers.
+		if (m_rescanAfterScan) {
+			m_rescanAfterScan = FALSE;
+			if (ft->GetRoot() != NULL) OnFileRefresh();
+		}
+	}
+	m_polling = FALSE;
 }
 
 void CSpaceMonger::OnFileRun(void)
@@ -572,6 +618,12 @@ void CSpaceMonger::OnFileRun(void)
 
 	// Opening and running happen in Explorer; SpaceMonger shows where it is.
 	fv->ShowInExplorer(fv->selected);
+}
+
+void CSpaceMonger::OnCopyInfo(void)
+{
+	CFolderView *fv = (CFolderView *)m_view;
+	if (fv != NULL) fv->CopyItemInfo(fv->selected);
 }
 
 static HRESULT DeleteShellItem(const std::wstring& path, HWND owner)
@@ -624,8 +676,9 @@ void CSpaceMonger::OnFileDelete(void)
 	CFolderView *fv = (CFolderView *)m_view;
 	CFolderTree *ft = (CFolderTree *)m_document;
 
-	if (fv == NULL || ft == NULL ||
+	if (fv == NULL || ft == NULL || ft->IsLoading() ||
 		!SM_CanDeleteSelection(m_settings.disable_delete, fv->selected != NULL)) return;
+	ft->StopCacheWriter();	// the tree is about to change
 
 	std::wstring title = fv->BuildItemPathW(fv->selected);
 	BOOL isfolder;
@@ -702,9 +755,12 @@ void CSpaceMonger::OnCleanup(void)
 	CFolderTree *ft = (CFolderTree *)m_document;
 	CCleanupDialog dialog(ft, m_mainframe);
 	dialog.DoModal();
-	// Show the space that was just freed.
-	if (dialog.FreedAnything() && ft != NULL && ft->GetRoot() != NULL)
-		OnFileRefresh();
+	// Show the space that was just freed. A scan that is running right now
+	// may have read the folders before they were emptied: scan again after it.
+	if (dialog.FreedAnything() && ft != NULL) {
+		if (ft->IsLoading()) m_rescanAfterScan = TRUE;
+		else if (ft->GetRoot() != NULL) OnFileRefresh();
+	}
 }
 
 void CSpaceMonger::OnSettings(void)
@@ -802,6 +858,7 @@ void CCurrentSettings::Reset(void)
 	auto_rescan = 0;
 	animated_zoom = 1;
 	disable_delete = 0;
+	scan_cache = 1;
 	bias = 0;
 	show_name_tips = 1;
 	nametip_delay = 125;
@@ -875,6 +932,8 @@ void CCurrentSettings::Load(void)
 	RegQueryValueEx(key, L"color_scheme",		NULL, &type, (unsigned char *)&color_scheme, &size);
 	size = sizeof(theme);
 	RegQueryValueEx(key, L"theme",				NULL, &type, (unsigned char *)&theme, &size);
+	size = sizeof(scan_cache);
+	RegQueryValueEx(key, L"scan_cache",			NULL, &type, (unsigned char *)&scan_cache, &size);
 	// Settings before 1.4.6 stored "us" without anyone choosing it; from
 	// then on the language follows Windows unless picked in Settings.
 	DWORD settingsVersion = 0;
@@ -895,6 +954,7 @@ void CCurrentSettings::Load(void)
 	auto_rescan = !!auto_rescan;
 	animated_zoom = !!animated_zoom;
 	disable_delete = !!disable_delete;
+	scan_cache = !!scan_cache;
 	save_pos = !!save_pos;
 
 	rollover_box = !!rollover_box;
@@ -1005,6 +1065,8 @@ void CCurrentSettings::Save(void)
 	RegSetValueEx(key, L"animated_zoom",		NULL, REG_DWORD, (unsigned char *)&animated_zoom, size);
 	size = sizeof(disable_delete);
 	RegSetValueEx(key, L"disable_delete",	NULL, REG_DWORD, (unsigned char *)&disable_delete, size);
+	size = sizeof(scan_cache);
+	RegSetValueEx(key, L"scan_cache",		NULL, REG_DWORD, (unsigned char *)&scan_cache, size);
 	size = sizeof(save_pos);
 	RegSetValueEx(key, L"save_pos",			NULL, REG_DWORD, (unsigned char *)&save_pos, size);
 	size = sizeof(bias);

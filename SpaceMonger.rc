@@ -32,7 +32,7 @@ STYLE DS_MODALFRAME | DS_SETFOREGROUND | DS_3DLOOK | WS_POPUP | WS_VISIBLE |
 FONT 9, "Segoe UI"
 BEGIN
     ICON            ID_SPACEMONGER,IDC_STATIC,7,9,20,20
-    LTEXT           "SpaceMonger Version 1.4.7",IDC_STATIC,37,9,216,10
+    LTEXT           "SpaceMonger Version 1.4.8",IDC_STATIC,37,9,216,10
     LTEXT           "",IDC_STATIC_DESCRIPTION,37,20,216,18
     LTEXT           "",IDC_STATIC_MAINTAINER,37,42,216,18
     CONTROL         "",IDC_STATIC,"Static",SS_ETCHEDHORZ,37,64,216,1
@@ -52,7 +52,8 @@ FONT 9, "Segoe UI"
 BEGIN
     LTEXT           "",IDC_CLEANUP_TEMP_HEADER,7,8,386,20
     DEFPUSHBUTTON   "",IDC_CLEANUP_DELETE,7,32,110,20
-    LTEXT           "",IDC_CLEANUP_TOTAL,125,38,200,10
+    CONTROL         "",IDC_CLEANUP_PROGRESS,"msctls_progress32",PBS_SMOOTH,125,34,200,5
+    LTEXT           "",IDC_CLEANUP_TOTAL,125,41,200,18
     PUSHBUTTON      "",IDC_CLEANUP_DETAILS,333,32,60,20
     CONTROL         "",IDC_CLEANUP_LIST,"SysListView32",LVS_REPORT |
                     LVS_SHOWSELALWAYS | WS_BORDER | WS_TABSTOP,7,60,386,84
@@ -95,7 +96,7 @@ BEGIN
                     236,6
 END
 
-IDD_SETTINGS DIALOG DISCARDABLE  0, 0, 260, 196
+IDD_SETTINGS DIALOG DISCARDABLE  0, 0, 260, 209
 STYLE DS_MODALFRAME | DS_SETFOREGROUND | DS_3DLOOK | WS_POPUP | WS_VISIBLE | 
     WS_CAPTION | WS_SYSMENU
 FONT 9, "Segoe UI"
@@ -107,22 +108,24 @@ BEGIN
     LTEXT           "",IDC_STATIC_DISPLAYCOLORS,16,37,62,8
     COMBOBOX        IDC_FILE_COLOR,80,35,164,80,CBS_DROPDOWNLIST | WS_VSCROLL |
                     WS_TABSTOP
-    GROUPBOX        "",IDC_STATIC_TOOLTIPS,7,60,246,54
+    GROUPBOX        "",IDC_STATIC_TOOLTIPS,7,60,246,67
     CONTROL         "",IDC_SHOW_INFO_TIPS,"Button",BS_AUTOCHECKBOX |
                     WS_GROUP | WS_TABSTOP,16,73,228,10
     CONTROL         "",IDC_SHOW_ROLLOVER_BOX,"Button",BS_AUTOCHECKBOX |
                     WS_TABSTOP,16,86,228,10
     CONTROL         "",IDC_DISABLE_DELETE,"Button",BS_AUTOCHECKBOX |
                     WS_TABSTOP,16,99,228,10
-    GROUPBOX        "",IDC_STATIC_MISCOPTIONS,7,118,246,52
-    LTEXT           "",IDC_STATIC_LANG,16,133,62,8
-    COMBOBOX        IDC_LANG,80,131,164,90,CBS_DROPDOWNLIST | WS_VSCROLL |
+    CONTROL         "",IDC_SCAN_CACHE,"Button",BS_AUTOCHECKBOX |
+                    WS_TABSTOP,16,112,228,10
+    GROUPBOX        "",IDC_STATIC_MISCOPTIONS,7,131,246,52
+    LTEXT           "",IDC_STATIC_LANG,16,146,62,8
+    COMBOBOX        IDC_LANG,80,144,164,90,CBS_DROPDOWNLIST | WS_VSCROLL |
                     WS_GROUP | WS_TABSTOP
-    LTEXT           "",IDC_STATIC_THEME,16,151,62,8
-    COMBOBOX        IDC_THEME,80,149,164,60,CBS_DROPDOWNLIST | WS_VSCROLL |
+    LTEXT           "",IDC_STATIC_THEME,16,164,62,8
+    COMBOBOX        IDC_THEME,80,162,164,60,CBS_DROPDOWNLIST | WS_VSCROLL |
                     WS_TABSTOP
-    PUSHBUTTON      "",IDCANCEL,148,176,50,14,WS_GROUP
-    DEFPUSHBUTTON   "",IDOK,203,176,50,14
+    PUSHBUTTON      "",IDCANCEL,148,189,50,14,WS_GROUP
+    DEFPUSHBUTTON   "",IDOK,203,189,50,14
 END
 
 IDD_SCAN_DETAILS DIALOGEX 0, 0, 360, 220
@@ -282,8 +285,8 @@ REPORT_HTML             RCDATA  DISCARDABLE     "res\\report.html"
 //
 
 VS_VERSION_INFO VERSIONINFO
- FILEVERSION 1,4,7,0
- PRODUCTVERSION 1,4,7,0
+ FILEVERSION 1,4,8,0
+ PRODUCTVERSION 1,4,8,0
  FILEFLAGSMASK 0x3fL
 #ifdef _DEBUG
  FILEFLAGS 0x1L
@@ -301,14 +304,14 @@ BEGIN
             VALUE "Comments", "Latest version: https://github.com/JRpersonal/spacemonger/releases\0"
             VALUE "CompanyName", "Open Source Developer Jens Roggenfelder\0"
             VALUE "FileDescription", "SpaceMonger disk space visualizer\0"
-            VALUE "FileVersion", "1, 4, 7, 0\0"
+            VALUE "FileVersion", "1, 4, 8, 0\0"
             VALUE "InternalName", "SpaceMonger\0"
             VALUE "LegalCopyright", "(C) 1998-2020 Sean Werkema, (C) 2026 Johnny J. Andersen, Jens Roggenfelder. MIT License\0"
             VALUE "LegalTrademarks", "\0"
             VALUE "OriginalFilename", "SpaceMonger.exe\0"
             VALUE "PrivateBuild", "\0"
             VALUE "ProductName", "SpaceMonger\0"
-            VALUE "ProductVersion", "1, 4, 7, 0\0"
+            VALUE "ProductVersion", "1, 4, 8, 0\0"
             VALUE "SpecialBuild", "\0"
         END
     END
