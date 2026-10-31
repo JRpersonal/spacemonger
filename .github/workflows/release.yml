@@ -420,8 +420,8 @@ jobs:
 
   # winget: komac opens a pull request in microsoft/winget-pkgs from the
   # maintainer's fork. Only after a real, non-pre-release publish; skips with a
-  # notice while WINGET_TOKEN is missing and never turns a release red. The very
-  # first version has to be submitted by hand (packaging/README.md).
+  # notice while WINGET_TOKEN is missing and never turns a release red. The first
+  # version (1.4.8) was submitted by hand; see packaging/README.md.
   package-managers:
     needs: publish
     if: |
