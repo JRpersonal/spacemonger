@@ -95,5 +95,5 @@ gh secret set RELEASE_PUBLISH_PAT -R JRpersonal/spacemonger
 | `tag vX.Y.Z already exists` | Version not bumped. Run `tools\version.ps1 -Set` on a branch |
 | `Release tag ... does not match the source version` | Tag and `CMakeLists.txt`/`.rc` disagree. Bump with `tools\version.ps1` |
 | VirusTotal gate failed | Read the engine list in the log. False positive: report it to the vendor, then re-run. Do not lower the threshold casually |
-| winget step failed | Does not affect the release. The first version must be submitted by hand (`packaging/README.md`) |
+| winget step failed | Does not affect the release. Submit that version by hand with komac (`packaging/README.md`) |
 | Certificate expires (2027-07-25) | Renew the Certum Open Source certificate, update `CERT_THUMBPRINT`. Already signed releases stay valid thanks to the timestamp |
